@@ -1,24 +1,35 @@
 // eamonbrown.com — home page: suminagashi.
 // Concentric rings of white ink on black, centred one letter-height below the
-// "N" of EAMON and spreading well past the edges of the screen. The pointer
-// is wind: moving it drags the ink rings along with it; when it leaves an
-// area the surface slowly heals back into true circles.
+// "N" of EAMON and spreading well past the edges of the screen.
 //
-// The wind lives in a small CPU displacement grid (uploaded as a texture each
-// frame); the rings themselves are drawn in a fragment shader.
+// The pointer is wind on water. Gusts push a velocity field that keeps
+// drifting and slowly settles (momentum, like water); that flow carries the
+// ink with it (semi-Lagrangian advection of a "where did this ink come from"
+// map), so rings fold and stay folded rather than springing back. Over time
+// the surface very slowly heals toward true circles.
+//
+// Simulation runs on a small CPU grid, uploaded each frame as a float texture
+// (WebGL2) or an 8-bit texture (WebGL1 fallback); rings are drawn in the shader.
 (() => {
   const canvas = document.querySelector('canvas.field');
   if (!canvas) return;
-  const gl = canvas.getContext('webgl', { antialias: false, alpha: false });
-  if (!gl) { canvas.style.background = '#efeae0'; return; }
+  let gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
+  const isGL2 = !!gl;
+  if (!gl) gl = canvas.getContext('webgl', { antialias: false, alpha: false });
+  if (!gl) { canvas.style.background = '#070708'; return; }
 
-  // ── Displacement grid (the "water surface") ─────────────────────
-  const GW = 160, GH = 100;                 // grid cells (stretched to the screen)
-  const dx = new Float32Array(GW * GH), dy = new Float32Array(GW * GH);
-  const tx = new Float32Array(GW * GH), ty = new Float32Array(GW * GH);
-  const tex8 = new Uint8Array(GW * GH * 4);
-  const MAXD = 0.22;                        // max displacement, fraction of min(w,h)
-  const HEAL = 0.9955;                      // per frame: slow return to circles (~2.5 s half-life)
+  // ── Water grid ───────────────────────────────────────────────────
+  const GW = 192, GH = 120, N = GW * GH;
+  const vx = new Float32Array(N), vy = new Float32Array(N);     // velocity, cells / frame
+  const nx = new Float32Array(N), ny = new Float32Array(N);
+  const mx = new Float32Array(N), my = new Float32Array(N);     // source map (cell coords)
+  const ax = new Float32Array(N), ay = new Float32Array(N);
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { mx[y * GW + x] = x; my[y * GW + x] = y; }
+  const dispF = new Float32Array(N * 2);
+  const disp8 = new Uint8Array(N * 4);
+  const DRAG = 0.965;      // water keeps moving after a gust, settling over ~1–2 s
+  const HEAL = 0.0018;     // per frame pull of the ink back toward circles (slow: ~10 s+)
+  const MAX8 = 0.5;        // 8-bit fallback range, fraction of min(w,h)
 
   const vert = `attribute vec2 p; varying vec2 vUv;
     void main(){ vUv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
@@ -28,9 +39,10 @@ varying vec2 vUv;
 uniform vec2 uRes;      // drawing-buffer size, px
 uniform vec2 uCenter;   // ring centre, px (GL coords, origin bottom-left)
 uniform float uSpace;   // ring spacing, px
-uniform float uMaxD;    // max displacement, px
+uniform vec2 uCell;     // grid cell size, px
+uniform float uFloat;   // 1 = float displacement texture, 0 = 8-bit
+uniform float uMax8;    // 8-bit range, px
 uniform sampler2D uDisp;
-uniform float uT;
 
 float hash(float n){ return fract(sin(n * 127.1) * 43758.5453); }
 float hash2(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
@@ -42,9 +54,8 @@ float noise(vec2 p){
 void main(){
   vec2 px = vUv * uRes;
   vec4 d = texture2D(uDisp, vUv);
-  vec2 disp = (d.xy * 2.0 - 1.0) * uMaxD;      // wind displacement at this point
-  vec2 q = px - disp;                           // sample the undisturbed pattern "upwind"
-
+  vec2 disp = uFloat > 0.5 ? d.xy * uCell : (d.xy * 2.0 - 1.0) * uMax8;
+  vec2 q = px - disp;                           // where this ink came from
   vec2 rel = q - uCenter;
   float r = length(rel);
   vec2 dir = rel / max(r, 1e-3);
@@ -81,7 +92,7 @@ void main(){
     return s;
   }
   const vs = sh(gl.VERTEX_SHADER, vert), fs = sh(gl.FRAGMENT_SHADER, frag);
-  if (!vs || !fs) { canvas.style.background = '#efeae0'; return; }
+  if (!vs || !fs) { canvas.style.background = '#070708'; return; }
   const prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
   gl.useProgram(prog);
 
@@ -97,10 +108,13 @@ void main(){
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
   const U = n => gl.getUniformLocation(prog, n);
-  const uRes = U('uRes'), uCenter = U('uCenter'), uSpace = U('uSpace'), uMaxD = U('uMaxD'), uT = U('uT');
+  const uRes = U('uRes'), uCenter = U('uCenter'), uSpace = U('uSpace'), uCell = U('uCell'),
+        uFloat = U('uFloat'), uMax8 = U('uMax8');
   gl.uniform1i(U('uDisp'), 0);
+  gl.uniform1f(uFloat, isGL2 ? 1 : 0);
 
   // ── Size + ring centre (one letter-height below the N of EAMON) ──
   let W = 0, H = 0, dpr = 1, cx = 0, cy = 0;
@@ -111,43 +125,49 @@ void main(){
     canvas.width = W; canvas.height = H; gl.viewport(0, 0, W, H);
     if (anchor) {
       const r = anchor.getBoundingClientRect();
-      const capH = parseFloat(getComputedStyle(anchor).fontSize) * 0.7;   // cap height
+      const capH = parseFloat(getComputedStyle(anchor).fontSize) * 0.7;
       const glyphBottom = r.top + r.height / 2 + capH / 2;
       cx = (r.left + r.width / 2) * dpr;
-      cy = H - (glyphBottom + capH) * dpr;            // one letter-height below the N; GL y is bottom-up
+      cy = H - (glyphBottom + capH) * dpr;
     } else { cx = W / 2; cy = H / 2; }
   }
   window.addEventListener('resize', layout);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
   layout();
 
-  // ── Wind ─────────────────────────────────────────────────────────
+  // ── Wind: gusts push the water ───────────────────────────────────
   let lastX = null, lastY = null;
   function wind(clientX, clientY) {
     if (lastX === null) { lastX = clientX; lastY = clientY; return; }
-    const vx = clientX - lastX, vy = clientY - lastY;
+    const sx = clientX - lastX, sy = clientY - lastY;
     lastX = clientX; lastY = clientY;
-    const sp = Math.hypot(vx, vy); if (sp < 0.2) return;
+    const sp = Math.hypot(sx, sy); if (sp < 0.3) return;
     const cw = canvas.clientWidth, ch = canvas.clientHeight, m = Math.min(cw, ch);
     const cellW = cw / GW, cellH = ch / GH;
-    const gx = clientX / cellW, gy = (ch - clientY) / cellH;        // grid coords (y up)
-    const Rpx = 0.11 * m;                                            // gust radius, px
-    const k = Math.min(sp, 60) / m / MAXD * 0.55;                    // push strength
-    const ux = vx / sp, uy = -vy / sp;                               // wind dir (y up)
-    const x0 = Math.max(0, Math.floor(gx - 2 * Rpx / cellW)), x1 = Math.min(GW - 1, Math.ceil(gx + 2 * Rpx / cellW));
-    const y0 = Math.max(0, Math.floor(gy - 2 * Rpx / cellH)), y1 = Math.min(GH - 1, Math.ceil(gy + 2 * Rpx / cellH));
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const px = (x - gx) * cellW, py = (y - gy) * cellH;
-        const fall = Math.exp(-(px * px + py * py) / (Rpx * Rpx));
-        if (fall < 0.01) continue;
-        const i = y * GW + x;
-        // push with the wind, plus a little curl (opposite on each side of the
-        // gust's path) so the ink swirls rather than simply slides
-        const side = Math.sign(px * uy - py * ux) * 0.35;
-        dx[i] += (ux + uy * side) * k * fall;
-        dy[i] += (uy - ux * side) * k * fall;
-      }
+    const gx = clientX / cellW, gy = (ch - clientY) / cellH;
+    const Rpx = 0.12 * m;                                    // gust width
+    const ux = sx / sp, uy = -sy / sp;                       // heading (y up)
+    const strength = Math.min(sp, 80) * 0.05;                // heavier with speed
+    // Blowing: the jet starts at the cursor and reaches ahead of it along its
+    // heading — a long, narrow plume, strongest just in front of the cursor.
+    const reach = 2.6 * Rpx;
+    const ext = reach + Rpx;
+    const x0 = Math.max(0, Math.floor(gx - ext / cellW)), x1 = Math.min(GW - 1, Math.ceil(gx + ext / cellW));
+    const y0 = Math.max(0, Math.floor(gy - ext / cellH)), y1 = Math.min(GH - 1, Math.ceil(gy + ext / cellH));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = (x - gx) * cellW, py = (y - gy) * cellH;
+      const along = px * ux + py * uy;                       // distance ahead of the cursor
+      const across = px * uy - py * ux;                      // distance to either side
+      if (along < -0.3 * Rpx) continue;                      // nothing behind the cursor
+      const a = Math.max(along, 0);
+      const width = Rpx * (0.45 + 0.55 * a / reach);         // plume spreads as it travels
+      const fall = Math.exp(-(across * across) / (width * width)) * Math.exp(-a / reach) * Math.min(1, (along + 0.3 * Rpx) / (0.3 * Rpx));
+      if (fall < 0.01) continue;
+      const i = y * GW + x;
+      // mostly straight ahead; the edges of the plume curl outward
+      const side = Math.tanh(across / width) * 0.35;
+      vx[i] += (ux + uy * side) * strength * fall / cellW;
+      vy[i] += (uy - ux * side) * strength * fall / cellH;
     }
   }
   window.addEventListener('pointermove', e => wind(e.clientX, e.clientY), { passive: true });
@@ -155,42 +175,64 @@ void main(){
   window.addEventListener('touchmove', e => { const t = e.touches[0]; if (t) wind(t.clientX, t.clientY); }, { passive: true });
   window.addEventListener('touchend', () => { lastX = null; });
 
-  function stepGrid() {
-    // heal + a light blur so the surface stays smooth, like water settling
-    for (let y = 0; y < GH; y++) {
-      for (let x = 0; x < GW; x++) {
-        const i = y * GW + x;
-        const l = x > 0 ? i - 1 : i, r = x < GW - 1 ? i + 1 : i;
-        const d = y > 0 ? i - GW : i, u = y < GH - 1 ? i + GW : i;
-        tx[i] = (dx[i] * 4 + dx[l] + dx[r] + dx[d] + dx[u]) / 8 * HEAL;
-        ty[i] = (dy[i] * 4 + dy[l] + dy[r] + dy[d] + dy[u]) / 8 * HEAL;
+  function bilerp(a, x, y) {
+    x = Math.max(0, Math.min(GW - 1.001, x)); y = Math.max(0, Math.min(GH - 1.001, y));
+    const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0, i = y0 * GW + x0;
+    return (a[i] * (1 - fx) + a[i + 1] * fx) * (1 - fy) + (a[i + GW] * (1 - fx) + a[i + GW + 1] * fx) * fy;
+  }
+
+  function step() {
+    // 1) velocity: viscous spread + drag (water carries on, then settles)
+    for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+      const i = y * GW + x;
+      const l = x > 0 ? i - 1 : i, r = x < GW - 1 ? i + 1 : i, d = y > 0 ? i - GW : i, u = y < GH - 1 ? i + GW : i;
+      nx[i] = (vx[i] * 2 + vx[l] + vx[r] + vx[d] + vx[u]) / 6 * DRAG;
+      ny[i] = (vy[i] * 2 + vy[l] + vy[r] + vy[d] + vy[u]) / 6 * DRAG;
+    }
+    vx.set(nx); vy.set(ny);
+    // 2) the water carries the ink: back-trace each cell along the flow
+    for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+      const i = y * GW + x;
+      const bx = x - vx[i], by = y - vy[i];
+      let sxm = bilerp(mx, bx, by), sym = bilerp(my, bx, by);
+      // 3) very slow healing toward the undisturbed circles
+      sxm += (x - sxm) * HEAL; sym += (y - sym) * HEAL;
+      ax[i] = sxm; ay[i] = sym;
+    }
+    mx.set(ax); my.set(ay);
+    // displacement = here − source (cells)
+    if (isGL2) {
+      for (let i = 0; i < N; i++) { const x = i % GW, y = (i / GW) | 0; dispF[i * 2] = x - mx[i]; dispF[i * 2 + 1] = y - my[i]; }
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG16F, GW, GH, 0, gl.RG, gl.FLOAT, dispF);
+    } else {
+      const cw = canvas.clientWidth, ch = canvas.clientHeight, m8 = MAX8 * Math.min(cw, ch);
+      for (let i = 0; i < N; i++) {
+        const x = i % GW, y = (i / GW) | 0;
+        const ddx = (x - mx[i]) * cw / GW / m8, ddy = (y - my[i]) * ch / GH / m8;
+        disp8[i * 4] = Math.round((Math.max(-1, Math.min(1, ddx)) * 0.5 + 0.5) * 255);
+        disp8[i * 4 + 1] = Math.round((Math.max(-1, Math.min(1, ddy)) * 0.5 + 0.5) * 255);
+        disp8[i * 4 + 3] = 255;
       }
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, GW, GH, 0, gl.RGBA, gl.UNSIGNED_BYTE, disp8);
     }
-    for (let i = 0; i < GW * GH; i++) {
-      const vx = Math.max(-1, Math.min(1, tx[i])), vy = Math.max(-1, Math.min(1, ty[i]));
-      dx[i] = vx; dy[i] = vy;
-      tex8[i * 4] = Math.round((vx * 0.5 + 0.5) * 255);
-      tex8[i * 4 + 1] = Math.round((vy * 0.5 + 0.5) * 255);
-      tex8[i * 4 + 2] = 0; tex8[i * 4 + 3] = 255;
-    }
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, GW, GH, 0, gl.RGBA, gl.UNSIGNED_BYTE, tex8);
   }
 
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let running = true;
   document.addEventListener('visibilitychange', () => { running = !document.hidden; if (running) requestAnimationFrame(frame); });
-  function frame(now) {
-    stepGrid();
+  function frame() {
+    step();
     const m = Math.min(W, H);
     gl.uniform2f(uRes, W, H);
     gl.uniform2f(uCenter, cx, cy);
     gl.uniform1f(uSpace, Math.max(18 * dpr, m * 0.034));
-    gl.uniform1f(uMaxD, MAXD * m);
-    gl.uniform1f(uT, now / 1000);
+    gl.uniform2f(uCell, W / GW, H / GH);
+    gl.uniform1f(uMax8, MAX8 * m);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     if (running) requestAnimationFrame(frame);
   }
-  if (reduce) { stepGrid(); requestAnimationFrame(t => { frame(t); running = false; }); }
+  if (reduce) { requestAnimationFrame(() => { frame(); running = false; }); }
   else requestAnimationFrame(frame);
 })();

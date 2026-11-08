@@ -171,3 +171,5 @@ body.ink .home p, body.ink .home .enter { color: rgba(232, 228, 222, 0.85); }
 @media (max-width: 760px) {
   body.ink .home h1 { white-space: nowrap; font-size: 8.4vw; letter-spacing: 0.22em; padding-left: 0.22em; }
 }
+/* Title in cinnabar (seal-red) — reads over both the white and the black ink */
+body.ink .home h1 { color: #c6432e; font-weight: 200; }
