@@ -173,3 +173,23 @@ body.ink .home p, body.ink .home .enter { color: rgba(232, 228, 222, 0.85); }
 }
 /* Title in cinnabar (seal-red) — reads over both the white and the black ink */
 body.ink .home h1 { color: #c6432e; font-weight: 200; }
+/* Home "Enter": larger, airy, widely spaced; underline draws out on hover */
+body.ink .home .enter {
+  margin-top: 56px;
+  font-family: var(--display); font-weight: 300;
+  font-size: clamp(15px, 1.35vw, 19px);
+  letter-spacing: 0.9em; padding-left: 0.9em;       /* keep it optically centred */
+  text-transform: uppercase;
+  color: rgba(232, 228, 222, 0.92);
+  border: 0; padding-bottom: 10px;
+  background: linear-gradient(currentColor, currentColor) center bottom / 32% 1px no-repeat;
+  transition: background-size .6s ease, color .3s;
+}
+body.ink .home .enter:hover { background-size: 100% 1px; color: #fff; }
+body.ink .home .enter {
+  margin-top: clamp(110px, 16vh, 170px);              /* sits below the first drop of ink */
+  font-size: clamp(16px, 1.5vw, 22px); font-weight: 400;
+  color: #c6432e;
+  text-shadow: 0 0 6px #070708, 0 0 14px #070708, 0 0 24px #070708;
+}
+body.ink .home .enter:hover { color: #e0573f; }

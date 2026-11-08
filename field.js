@@ -28,7 +28,7 @@
   const dispF = new Float32Array(N * 2);
   const disp8 = new Uint8Array(N * 4);
   const DRAG = 0.965;      // water keeps moving after a gust, settling over ~1–2 s
-  const HEAL = 0.0018;     // per frame pull of the ink back toward circles (slow: ~10 s+)
+  const HEAL = 0.0007;     // per frame pull of the ink back toward circles (very slow: ~30 s+)
   const MAX8 = 0.5;        // 8-bit fallback range, fraction of min(w,h)
 
   const vert = `attribute vec2 p; varying vec2 vUv;
