@@ -156,3 +156,6 @@ img, video { display: block; max-width: 100%; }
 .phones { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(12px, 2vw, 28px); margin-top: 64px; }
 .phones img { width: 100%; border-radius: 22px; border: 1px solid var(--line); }
 @media (max-width: 760px) { .phones { grid-template-columns: 1fr 1fr; } }
+.play-frame { border: 1px solid var(--line); background: #f4efe3; }
+.play-frame iframe { display: block; width: 100%; height: min(1060px, 140vw); border: 0; }
+.play-note { margin: 14px 0 56px; }
