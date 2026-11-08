@@ -1,5 +1,5 @@
 // eamonbrown.com — the living field on the home page.
-// A slow, domain-warped noise surface lit like contour lines: dark, quiet,
+// A slow, domain-warped noise surface drawn as white contour lines on black,
 // always moving, gently bent by the pointer. Pauses when the tab is hidden;
 // renders a single still frame for prefers-reduced-motion.
 (() => {
@@ -47,11 +47,13 @@ void main(){
   float e = 0.5 - abs(fract(bands) - 0.5);           // distance to nearest contour (band units)
   float line = 1.0 - smoothstep(0.015, 0.075, e);
   float idx = floor(bands + 0.5);
-  vec3 hue = 0.55 + 0.45 * cos(6.28318 * (idx * 0.137 + vec3(0.0, 0.33, 0.67) + t * 0.05));
-  hue = mix(hue, vec3(0.93, 0.91, 0.88), 0.18);
+  // Black & white: every contour the same warm white, alternate lines a
+  // little dimmer so the layering still reads.
+  float tone = mix(0.55, 1.0, step(0.5, fract(idx * 0.5)));
+  vec3 hue = vec3(0.93, 0.92, 0.90) * tone;
 
-  vec3 base = vec3(0.012, 0.012, 0.016) + vec3(0.02, 0.03, 0.04) * smoothstep(0.3, 0.9, h);
-  vec3 col = base + hue * line * (0.55 + 0.45 * smoothstep(0.3, 0.8, h));
+  vec3 base = vec3(0.012) + vec3(0.025) * smoothstep(0.3, 0.9, h);
+  vec3 col = base + hue * line * (0.45 + 0.45 * smoothstep(0.3, 0.8, h));
 
   // soft vignette; keep the centre slightly quieter so the name reads
   float vig = smoothstep(1.35, 0.3, length(uv * vec2(0.85, 1.05)));
