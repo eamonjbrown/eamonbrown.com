@@ -159,3 +159,15 @@ img, video { display: block; max-width: 100%; }
 .play-frame { border: 1px solid var(--line); background: #f4efe3; }
 .play-frame iframe { display: block; width: 100%; height: min(1060px, 140vw); border: 0; }
 .play-note { margin: 14px 0 56px; }
+
+/* ── Home: suminagashi (white ink on black) ─────── */
+body.ink .home h1 {
+  text-shadow: 0 0 0.12em #070708, 0 0 0.3em #070708, 0 0 0.6em rgba(7, 7, 8, 0.9);
+}
+body.ink .home p, body.ink .home .enter, body.ink .home-foot, body.ink .nav a {
+  text-shadow: 0 0 6px #070708, 0 0 12px #070708, 0 0 18px #070708;
+}
+body.ink .home p, body.ink .home .enter { color: rgba(232, 228, 222, 0.85); }
+@media (max-width: 760px) {
+  body.ink .home h1 { white-space: nowrap; font-size: 8.4vw; letter-spacing: 0.22em; padding-left: 0.22em; }
+}

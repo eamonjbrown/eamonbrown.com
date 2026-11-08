@@ -1,66 +1,77 @@
-// eamonbrown.com — the living field on the home page.
-// A slow, domain-warped noise surface drawn as white contour lines on black,
-// always moving, gently bent by the pointer. Pauses when the tab is hidden;
-// renders a single still frame for prefers-reduced-motion.
+// eamonbrown.com — home page: suminagashi.
+// Concentric rings of white ink on black, centred one letter-height below the
+// "N" of EAMON and spreading well past the edges of the screen. The pointer
+// is wind: moving it drags the ink rings along with it; when it leaves an
+// area the surface slowly heals back into true circles.
+//
+// The wind lives in a small CPU displacement grid (uploaded as a texture each
+// frame); the rings themselves are drawn in a fragment shader.
 (() => {
   const canvas = document.querySelector('canvas.field');
   if (!canvas) return;
-  const gl = canvas.getContext('webgl', { antialias: false, alpha: false, preserveDrawingBuffer: false });
-  if (!gl) { canvas.style.background = 'radial-gradient(80% 70% at 50% 45%, #18242a, #07070a)'; return; }
+  const gl = canvas.getContext('webgl', { antialias: false, alpha: false });
+  if (!gl) { canvas.style.background = '#efeae0'; return; }
 
-  const vert = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
+  // ── Displacement grid (the "water surface") ─────────────────────
+  const GW = 160, GH = 100;                 // grid cells (stretched to the screen)
+  const dx = new Float32Array(GW * GH), dy = new Float32Array(GW * GH);
+  const tx = new Float32Array(GW * GH), ty = new Float32Array(GW * GH);
+  const tex8 = new Uint8Array(GW * GH * 4);
+  const MAXD = 0.22;                        // max displacement, fraction of min(w,h)
+  const HEAL = 0.9955;                      // per frame: slow return to circles (~2.5 s half-life)
+
+  const vert = `attribute vec2 p; varying vec2 vUv;
+    void main(){ vUv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
   const frag = `
 precision highp float;
-uniform vec2 uRes; uniform float uT; uniform vec2 uPtr; uniform float uPtrAmt;
+varying vec2 vUv;
+uniform vec2 uRes;      // drawing-buffer size, px
+uniform vec2 uCenter;   // ring centre, px (GL coords, origin bottom-left)
+uniform float uSpace;   // ring spacing, px
+uniform float uMaxD;    // max displacement, px
+uniform sampler2D uDisp;
+uniform float uT;
 
-float hash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float hash(float n){ return fract(sin(n * 127.1) * 43758.5453); }
+float hash2(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
 float noise(vec2 p){
-  vec2 i = floor(p), f = fract(p);
-  float a = hash(i), b = hash(i + vec2(1,0)), c = hash(i + vec2(0,1)), d = hash(i + vec2(1,1));
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+  vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash2(i), hash2(i + vec2(1,0)), u.x), mix(hash2(i + vec2(0,1)), hash2(i + vec2(1,1)), u.x), u.y);
 }
-float fbm(vec2 p){
-  float v = 0.0, a = 0.5;
-  mat2 r = mat2(0.8, -0.6, 0.6, 0.8);
-  for (int i = 0; i < 5; i++){ v += a * noise(p); p = r * p * 2.03 + 11.7; a *= 0.5; }
-  return v;
-}
+
 void main(){
-  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / min(uRes.x, uRes.y);
-  float t = uT * 0.035;
+  vec2 px = vUv * uRes;
+  vec4 d = texture2D(uDisp, vUv);
+  vec2 disp = (d.xy * 2.0 - 1.0) * uMaxD;      // wind displacement at this point
+  vec2 q = px - disp;                           // sample the undisturbed pattern "upwind"
 
-  // pointer bends the surface softly
-  vec2 d = uv - uPtr;
-  float pull = uPtrAmt * exp(-dot(d, d) * 3.5);
-  uv += d * pull * 0.35;
+  vec2 rel = q - uCenter;
+  float r = length(rel);
+  vec2 dir = rel / max(r, 1e-3);
+  // ink never makes perfect circles: a slow wobble of the radius that grows
+  // outward (rings near the first drop stay round). Sampled on the direction
+  // vector, not the angle, so there's no seam.
+  float grow = clamp(r / (uSpace * 10.0), 0.0, 1.0);
+  r += (noise(dir * 1.3 + r * 0.0018 + 11.0) - 0.5) * uSpace * 0.9 * grow;
+  r += (noise(dir * 4.0 + r * 0.004 + 3.0) - 0.5) * uSpace * 0.25 * grow;
 
-  // domain warp (two passes) — the surface folds slowly over itself
-  vec2 q = vec2(fbm(uv * 1.3 + vec2(0.0, t)), fbm(uv * 1.3 + vec2(5.2, -t * 0.8)));
-  vec2 r = vec2(fbm(uv * 1.6 + 2.2 * q + vec2(1.7, 9.2) + t * 0.6),
-                fbm(uv * 1.6 + 2.2 * q + vec2(8.3, 2.8) - t * 0.5));
-  float h = fbm(uv * 1.4 + 2.6 * r);
+  float ringPos = r / uSpace;
+  float idx = floor(ringPos);
+  float f = fract(ringPos);
+  // each ring its own thickness, like successive touches of the brush
+  float w = mix(0.34, 0.56, hash(idx + 7.0));
+  float soft = 1.1 / uSpace;                    // ~1 px edge: crisp, inked
+  float ink = smoothstep(0.5 - w * 0.5 - soft, 0.5 - w * 0.5 + soft, f)
+            * (1.0 - smoothstep(0.5 + w * 0.5 - soft, 0.5 + w * 0.5 + soft, f));
+  // the first touch: a single round drop at the centre
+  ink = max(ink, 1.0 - smoothstep(uSpace * 0.5 - 1.0, uSpace * 0.5 + 1.0, length(rel)));
 
-  // contour lines of the height field — each contour its own hue, cycling
-  // like the layered colour bands of the floor pieces.
-  float bands = h * 16.0;
-  float e = 0.5 - abs(fract(bands) - 0.5);           // distance to nearest contour (band units)
-  float line = 1.0 - smoothstep(0.015, 0.075, e);
-  float idx = floor(bands + 0.5);
-  // Black & white: every contour the same warm white, alternate lines a
-  // little dimmer so the layering still reads.
-  float tone = mix(0.55, 1.0, step(0.5, fract(idx * 0.5)));
-  vec3 hue = vec3(0.93, 0.92, 0.90) * tone;
-
-  vec3 base = vec3(0.012) + vec3(0.025) * smoothstep(0.3, 0.9, h);
-  vec3 col = base + hue * line * (0.45 + 0.45 * smoothstep(0.3, 0.8, h));
-
-  // soft vignette; keep the centre slightly quieter so the name reads
-  float vig = smoothstep(1.35, 0.3, length(uv * vec2(0.85, 1.05)));
-  col *= 0.45 + 0.55 * vig;
-  float hush = smoothstep(0.05, 0.6, length(uv * vec2(0.6, 1.4)));
-  col *= 0.4 + 0.6 * hush;
-
+  // pigment density drifts gently along each ring
+  float dens = 0.86 + 0.14 * noise(dir * 2.0 + idx * 0.37);
+  vec3 ground = vec3(0.028, 0.027, 0.030);
+  ground *= 0.9 + 0.1 * noise(px * 0.35);       // faint grain
+  vec3 inkCol = vec3(0.90, 0.885, 0.86);        // bone white
+  vec3 col = mix(ground, inkCol, ink * dens);
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -70,7 +81,7 @@ void main(){
     return s;
   }
   const vs = sh(gl.VERTEX_SHADER, vert), fs = sh(gl.FRAGMENT_SHADER, frag);
-  if (!vs || !fs) { canvas.style.background = '#07070a'; return; }
+  if (!vs || !fs) { canvas.style.background = '#efeae0'; return; }
   const prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
   gl.useProgram(prog);
 
@@ -80,42 +91,106 @@ void main(){
   const loc = gl.getAttribLocation(prog, 'p');
   gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 
-  const uRes = gl.getUniformLocation(prog, 'uRes');
-  const uT = gl.getUniformLocation(prog, 'uT');
-  const uPtr = gl.getUniformLocation(prog, 'uPtr');
-  const uPtrAmt = gl.getUniformLocation(prog, 'uPtrAmt');
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-  let w = 0, h = 0;
-  function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    w = Math.floor(canvas.clientWidth * dpr); h = Math.floor(canvas.clientHeight * dpr);
-    canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h);
-  }
-  window.addEventListener('resize', resize); resize();
+  const U = n => gl.getUniformLocation(prog, n);
+  const uRes = U('uRes'), uCenter = U('uCenter'), uSpace = U('uSpace'), uMaxD = U('uMaxD'), uT = U('uT');
+  gl.uniform1i(U('uDisp'), 0);
 
-  // pointer, eased
-  let px = 0, py = 0, tx = 0, ty = 0, amt = 0, tAmt = 0;
-  function setPtr(cx, cy) {
-    const m = Math.min(canvas.clientWidth, canvas.clientHeight);
-    tx = (cx - canvas.clientWidth / 2) / m; ty = -(cy - canvas.clientHeight / 2) / m; tAmt = 1;
+  // ── Size + ring centre (one letter-height below the N of EAMON) ──
+  let W = 0, H = 0, dpr = 1, cx = 0, cy = 0;
+  const anchor = document.querySelector('[data-ink-anchor]');
+  function layout() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.floor(canvas.clientWidth * dpr); H = Math.floor(canvas.clientHeight * dpr);
+    canvas.width = W; canvas.height = H; gl.viewport(0, 0, W, H);
+    if (anchor) {
+      const r = anchor.getBoundingClientRect();
+      const capH = parseFloat(getComputedStyle(anchor).fontSize) * 0.7;   // cap height
+      const glyphBottom = r.top + r.height / 2 + capH / 2;
+      cx = (r.left + r.width / 2) * dpr;
+      cy = H - (glyphBottom + capH) * dpr;            // one letter-height below the N; GL y is bottom-up
+    } else { cx = W / 2; cy = H / 2; }
   }
-  window.addEventListener('pointermove', e => setPtr(e.clientX, e.clientY), { passive: true });
-  window.addEventListener('pointerleave', () => { tAmt = 0; });
-  window.addEventListener('touchend', () => { tAmt = 0; });
+  window.addEventListener('resize', layout);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+  layout();
+
+  // ── Wind ─────────────────────────────────────────────────────────
+  let lastX = null, lastY = null;
+  function wind(clientX, clientY) {
+    if (lastX === null) { lastX = clientX; lastY = clientY; return; }
+    const vx = clientX - lastX, vy = clientY - lastY;
+    lastX = clientX; lastY = clientY;
+    const sp = Math.hypot(vx, vy); if (sp < 0.2) return;
+    const cw = canvas.clientWidth, ch = canvas.clientHeight, m = Math.min(cw, ch);
+    const cellW = cw / GW, cellH = ch / GH;
+    const gx = clientX / cellW, gy = (ch - clientY) / cellH;        // grid coords (y up)
+    const Rpx = 0.11 * m;                                            // gust radius, px
+    const k = Math.min(sp, 60) / m / MAXD * 0.55;                    // push strength
+    const ux = vx / sp, uy = -vy / sp;                               // wind dir (y up)
+    const x0 = Math.max(0, Math.floor(gx - 2 * Rpx / cellW)), x1 = Math.min(GW - 1, Math.ceil(gx + 2 * Rpx / cellW));
+    const y0 = Math.max(0, Math.floor(gy - 2 * Rpx / cellH)), y1 = Math.min(GH - 1, Math.ceil(gy + 2 * Rpx / cellH));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const px = (x - gx) * cellW, py = (y - gy) * cellH;
+        const fall = Math.exp(-(px * px + py * py) / (Rpx * Rpx));
+        if (fall < 0.01) continue;
+        const i = y * GW + x;
+        // push with the wind, plus a little curl (opposite on each side of the
+        // gust's path) so the ink swirls rather than simply slides
+        const side = Math.sign(px * uy - py * ux) * 0.35;
+        dx[i] += (ux + uy * side) * k * fall;
+        dy[i] += (uy - ux * side) * k * fall;
+      }
+    }
+  }
+  window.addEventListener('pointermove', e => wind(e.clientX, e.clientY), { passive: true });
+  window.addEventListener('pointerleave', () => { lastX = null; });
+  window.addEventListener('touchmove', e => { const t = e.touches[0]; if (t) wind(t.clientX, t.clientY); }, { passive: true });
+  window.addEventListener('touchend', () => { lastX = null; });
+
+  function stepGrid() {
+    // heal + a light blur so the surface stays smooth, like water settling
+    for (let y = 0; y < GH; y++) {
+      for (let x = 0; x < GW; x++) {
+        const i = y * GW + x;
+        const l = x > 0 ? i - 1 : i, r = x < GW - 1 ? i + 1 : i;
+        const d = y > 0 ? i - GW : i, u = y < GH - 1 ? i + GW : i;
+        tx[i] = (dx[i] * 4 + dx[l] + dx[r] + dx[d] + dx[u]) / 8 * HEAL;
+        ty[i] = (dy[i] * 4 + dy[l] + dy[r] + dy[d] + dy[u]) / 8 * HEAL;
+      }
+    }
+    for (let i = 0; i < GW * GH; i++) {
+      const vx = Math.max(-1, Math.min(1, tx[i])), vy = Math.max(-1, Math.min(1, ty[i]));
+      dx[i] = vx; dy[i] = vy;
+      tex8[i * 4] = Math.round((vx * 0.5 + 0.5) * 255);
+      tex8[i * 4 + 1] = Math.round((vy * 0.5 + 0.5) * 255);
+      tex8[i * 4 + 2] = 0; tex8[i * 4 + 3] = 255;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, GW, GH, 0, gl.RGBA, gl.UNSIGNED_BYTE, tex8);
+  }
 
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const t0 = performance.now() - 40000; // start mid-flow, not from a blank seed
   let running = true;
   document.addEventListener('visibilitychange', () => { running = !document.hidden; if (running) requestAnimationFrame(frame); });
-
   function frame(now) {
-    px += (tx - px) * 0.04; py += (ty - py) * 0.04; amt += (tAmt - amt) * 0.03;
-    gl.uniform2f(uRes, w, h);
-    gl.uniform1f(uT, (now - t0) / 1000);
-    gl.uniform2f(uPtr, px, py);
-    gl.uniform1f(uPtrAmt, amt);
+    stepGrid();
+    const m = Math.min(W, H);
+    gl.uniform2f(uRes, W, H);
+    gl.uniform2f(uCenter, cx, cy);
+    gl.uniform1f(uSpace, Math.max(18 * dpr, m * 0.034));
+    gl.uniform1f(uMaxD, MAXD * m);
+    gl.uniform1f(uT, now / 1000);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    if (running && !reduce) requestAnimationFrame(frame);
+    if (running) requestAnimationFrame(frame);
   }
-  requestAnimationFrame(frame);
+  if (reduce) { stepGrid(); requestAnimationFrame(t => { frame(t); running = false; }); }
+  else requestAnimationFrame(frame);
 })();
