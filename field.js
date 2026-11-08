@@ -65,12 +65,22 @@ void main(){
   float grow = clamp(r / (uSpace * 10.0), 0.0, 1.0);
   r += (noise(dir * 1.3 + r * 0.0018 + 11.0) - 0.5) * uSpace * 0.9 * grow;
   r += (noise(dir * 4.0 + r * 0.004 + 3.0) - 0.5) * uSpace * 0.25 * grow;
+  // zig-zag: a triangle wave of noise puts sharp kinks into the rings,
+  // stronger toward the outer edges like ink breaking on the water
+  float zz = noise(dir * 3.4 + r * 0.005 + 5.0) * 3.0;
+  float tri = abs(fract(zz) - 0.5);                          // 0…0.5 sawtooth folds
+  tri = smoothstep(0.0, 0.5, tri);                           // softened kinks, still angular
+  float outer = smoothstep(uSpace * 8.0, uSpace * 30.0, r);  // calm near the drop, livelier outward
+  r += (tri - 0.5) * uSpace * 0.9 * outer;
 
   float ringPos = r / uSpace;
   float idx = floor(ringPos);
   float f = fract(ringPos);
   // each ring its own thickness, like successive touches of the brush
-  float w = mix(0.34, 0.56, hash(idx + 7.0));
+  // weight variety: each ring its own thickness, and it swells and thins along its length
+  float w = mix(0.16, 0.70, hash(idx + 7.0));
+  w *= 0.7 + 0.6 * noise(dir * 5.0 + vec2(idx * 1.7, idx * 0.3));
+  w = clamp(w, 0.08, 0.82);
   float soft = 1.1 / uSpace;                    // ~1 px edge: crisp, inked
   float ink = smoothstep(0.5 - w * 0.5 - soft, 0.5 - w * 0.5 + soft, f)
             * (1.0 - smoothstep(0.5 + w * 0.5 - soft, 0.5 + w * 0.5 + soft, f));
@@ -165,7 +175,9 @@ void main(){
       if (fall < 0.01) continue;
       const i = y * GW + x;
       // mostly straight ahead; the edges of the plume curl outward
-      const side = Math.tanh(across / width) * 0.35;
+      // edges curl outward, and a ripple across the plume folds the ink
+      // into zig-zags as it is blown (like breath on the water's surface)
+      const side = Math.tanh(across / width) * 0.35 + Math.sin(along / (Rpx * 0.16) + across / (Rpx * 0.5)) * 0.55;
       vx[i] += (ux + uy * side) * strength * fall / cellW;
       vy[i] += (uy - ux * side) * strength * fall / cellH;
     }
