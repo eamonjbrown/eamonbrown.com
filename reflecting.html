@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reflecting — Aumara Realms — Eamon Brown</title>
+<meta name="description" content="Reflecting, a realm from Aumara Realms by Eamon Brown — panes of inked glass, cut and overlaid, live in the browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=Jost:wght@100;200;300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; background: #000; }
+  body {
+    position: fixed; inset: 0; touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  }
+  canvas.realm { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+
+  /* Chrome — quiet, and quieter still while you carve or sit still */
+  .chrome { position: fixed; inset: 0; z-index: 5; pointer-events: none; isolation: isolate; }
+  .chrome > * { position: absolute; pointer-events: auto; transition: opacity 1.4s ease; }
+  .quiet .chrome > *, .carving .chrome > * { opacity: 0; }
+  .quiet .chrome > *:hover, .quiet .chrome > *:focus-within { opacity: 1; }
+  .chrome, .chrome * { text-shadow: 0 0 6px #000, 0 0 14px #000, 0 0 22px rgba(0,0,0,.8); }
+  .mono {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: rgba(232, 228, 222, 0.72);
+  }
+  .back-link { top: max(24px, env(safe-area-inset-top)); left: clamp(16px, 4vw, 40px); transition: color .3s, opacity 1.4s; }
+  .back-link:hover { color: var(--bone); }
+
+  .sound {
+    top: max(18px, calc(env(safe-area-inset-top) - 6px)); right: clamp(10px, 4vw, 34px);
+    display: flex; align-items: center; gap: 10px; padding: 6px;
+    background: none; border: 0; cursor: pointer;
+  }
+  .sound i { /* three bars: still when off, breathing when on */
+    display: inline-flex; gap: 3px; align-items: center; height: 14px;
+  }
+  .sound i b { width: 2px; height: 3px; background: currentColor; border-radius: 1px; transition: height .4s; }
+  .sound[aria-pressed="true"] i b { animation: bar 1.6s ease-in-out infinite; }
+  .sound[aria-pressed="true"] i b:nth-child(2) { animation-delay: -.5s; }
+  .sound[aria-pressed="true"] i b:nth-child(3) { animation-delay: -1s; }
+  @keyframes bar { 0%, 100% { height: 3px; } 50% { height: 13px; } }
+  .sound .on { display: none; } .sound[aria-pressed="true"] .on { display: inline; }
+  .sound[aria-pressed="true"] .off { display: none; }
+  .sound:hover { color: var(--bone); }
+
+  .title-block { left: clamp(16px, 4vw, 40px); bottom: max(26px, env(safe-area-inset-bottom)); max-width: min(520px, 62vw); }
+  .title-block h1 {
+    margin: 0 0 10px; font-weight: 200; font-size: clamp(22px, 3vw, 34px);
+    letter-spacing: 0.42em; text-transform: uppercase; color: var(--bone);
+  }
+  .title-block p { margin: 0; line-height: 1.7; }
+  .hint { margin-top: 14px !important; color: rgba(232, 228, 222, 0.5) !important; transition: opacity 1.2s; }
+  .hinted .hint { opacity: 0; }
+
+  .gels { right: clamp(16px, 4vw, 40px); bottom: max(26px, env(safe-area-inset-bottom)); display: grid; justify-items: end; gap: 12px; }
+  .gel-row { display: flex; gap: 9px; }
+  .gel-row button {
+    width: 16px; height: 16px; padding: 0; border-radius: 50%; cursor: pointer;
+    border: 1px solid rgba(232, 228, 222, 0.28); background: var(--sw);
+    box-shadow: 0 0 10px rgba(0,0,0,.8);
+    transition: transform .3s, border-color .3s;
+  }
+  .gel-row button:hover { transform: scale(1.18); }
+  .gel-row button[aria-pressed="true"] { border-color: var(--bone); transform: scale(1.18); outline: 1px solid rgba(232,228,222,.35); outline-offset: 3px; }
+  .gel-row button[data-gel="7"] { background: conic-gradient(#ff2a8c, #1a73ff, #ffe60d, #33d99e, #e0611a, #ff2a8c); animation: spin 14s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .gel-row button[data-gel="7"][aria-pressed="true"] { animation: spin 14s linear infinite; }
+
+  .fallback { position: fixed; inset: 0; display: none; place-items: center; padding: 24px; text-align: center; }
+  .no-gl .fallback { display: grid; }
+  .no-gl canvas.realm, .no-gl .gels, .no-gl .sound, .no-gl .hint { display: none; }
+  .fallback img { max-height: 70vh; width: auto; border-radius: 22px; border: 1px solid var(--line); margin: 0 auto 20px; }
+
+  /* Embedded on the Aumara Realms page: picture only */
+  .embed .chrome { display: none; }
+  .embed canvas.realm { cursor: default; }
+
+  @media (max-width: 640px) {
+    .title-block { max-width: calc(100vw - 32px); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 40px); }
+    .title-block .tagline { display: none; }
+    .gels { left: clamp(16px, 4vw, 40px); right: auto; justify-items: start; }
+    .gel-name { display: none; }
+    .gel-row { gap: 11px; }
+    .gel-row button { width: 18px; height: 18px; }
+  }
+</style>
+<script>if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');</script>
+</head>
+<body>
+<canvas class="realm" aria-label="Reflecting — live generative glass. Drag to cut it; keep still to let it settle."></canvas>
+
+<div class="chrome">
+  <a class="back-link mono" href="aumara-realms.html">← Aumara Realms</a>
+
+  <button class="sound mono" type="button" aria-pressed="false" aria-label="Sound">
+    <i aria-hidden="true"><b></b><b></b><b></b></i>
+    <span class="off">Sound off</span><span class="on">Sound on</span>
+  </button>
+
+  <div class="title-block">
+    <h1>Reflecting</h1>
+    <p class="mono tagline">Panes of inked glass, cut and overlaid. Colours deepen where they cross.</p>
+    <p class="mono hint">Drag to cut the glass · Keep still and it settles</p>
+  </div>
+
+  <div class="gels" role="group" aria-label="Ink set">
+    <span class="mono gel-name">Cycle</span>
+    <div class="gel-row">
+      <button data-gel="0" aria-label="Riso Classic" title="Riso Classic" style="--sw: conic-gradient(#ff268c 0 33%, #1a73ff 0 66%, #ffe60d 0)"></button>
+      <button data-gel="1" aria-label="Ink Wash"     title="Ink Wash"     style="--sw: conic-gradient(#f5f5f0 0 33%, #8c8f94 0 66%, #292b30 0)"></button>
+      <button data-gel="2" aria-label="Huichol"      title="Huichol"      style="--sw: conic-gradient(#fa1a99 0 33%, #1ae6bf 0 66%, #ff730d 0)"></button>
+      <button data-gel="3" aria-label="Primary"      title="Primary"      style="--sw: conic-gradient(#ff2938 0 33%, #ffe614 0 66%, #2961ff 0)"></button>
+      <button data-gel="4" aria-label="Oxide"        title="Oxide"        style="--sw: conic-gradient(#33d99e 0 33%, #e0611a 0 66%, #942185 0)"></button>
+      <button data-gel="5" aria-label="Midnight"     title="Midnight"     style="--sw: conic-gradient(#1775de 0 33%, #7514b0 0 66%, #fa8017 0)"></button>
+      <button data-gel="6" aria-label="Duotone"      title="Duotone"      style="--sw: conic-gradient(#ff4d47 0 33%, #149e99 0 66%, #b8babf 0)"></button>
+      <button data-gel="7" aria-label="Cycle through all inks" title="Cycle"></button>
+    </div>
+  </div>
+</div>
+
+<div class="fallback">
+  <div>
+    <img src="aumara-1.jpg" alt="Reflecting, on iPhone">
+    <p class="mono">This realm needs WebGL 2 — try a recent browser.<br><a href="aumara-realms.html">← Aumara Realms</a></p>
+  </div>
+</div>
+
+<script src="reflecting.js"></script>
+</body>
+</html>
