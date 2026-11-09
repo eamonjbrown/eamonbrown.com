@@ -434,41 +434,82 @@
   let hinted = false;
 
   // ── Sound ──────────────────────────────────────────────────────────
-  const audio = { ctx: null, node: null, gain: null, on: false, busy: false, sendT: 0 };
+  const audio = { ctx: null, node: null, gain: null, el: null, on: false, busy: false, sendT: 0 };
   const soundBtn = document.querySelector('.sound');
-  async function toggleSound() {
-    if (audio.busy) return;
-    audio.busy = true;
-    try {
-      if (!audio.ctx) {
-        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
-        const ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
-        await ctx.audioWorklet.addModule('reflecting-audio.js');
-        const node = new AudioWorkletNode(ctx, 'reflecting', { numberOfInputs: 0, outputChannelCount: [2] });
-        const gain = ctx.createGain(); gain.gain.value = 0;
-        node.connect(gain).connect(ctx.destination);
-        Object.assign(audio, { ctx, node, gain });
-      }
-      const { ctx, gain } = audio;
-      const now = ctx.currentTime;
-      gain.gain.cancelScheduledValues(now);
-      gain.gain.setValueAtTime(gain.gain.value, now);
-      if (!audio.on) {
-        await ctx.resume();
-        gain.gain.linearRampToValueAtTime(1, now + 1.2);
-        audio.on = true;
-      } else {
-        gain.gain.linearRampToValueAtTime(0, now + 0.6);
-        audio.on = false;
-        setTimeout(() => { if (!audio.on) ctx.suspend(); }, 700);
-      }
-    } catch (e) {
-      console.error('[reflecting] audio', e);
-    } finally {
-      audio.busy = false;
-      soundBtn?.setAttribute('aria-pressed', String(audio.on));
-    }
+  // iOS rules: the AudioContext must be created AND resumed synchronously
+  // inside the tap — anything after an `await` no longer counts as a gesture.
+  // A silent looping <audio> element also moves Safari onto the "playback"
+  // audio session, so the ringer/silent switch doesn't mute the realm on
+  // iPhones older than iOS 17 (newer ones use navigator.audioSession).
+  function silentWavURL() {
+    const sr = 8000, n = sr / 2, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, n * 2, true);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
   }
+  function unlockAudio() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+    if (!audio.el) {
+      audio.el = new Audio(silentWavURL());
+      audio.el.loop = true; audio.el.setAttribute('playsinline', '');
+    }
+    audio.el.play().catch(() => {});
+    if (!audio.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      audio.ctx = new AC();
+    }
+    const ctx = audio.ctx;
+    ctx.resume();
+    const b = ctx.createBuffer(1, 1, 22050), src = ctx.createBufferSource();   // classic iOS unlock
+    src.buffer = b; src.connect(ctx.destination); src.start(0);
+  }
+  async function buildGraph() {
+    if (audio.node) return;
+    const ctx = audio.ctx;
+    await ctx.audioWorklet.addModule('reflecting-audio.js');
+    const node = new AudioWorkletNode(ctx, 'reflecting', { numberOfInputs: 0, outputChannelCount: [2] });
+    const gain = ctx.createGain(); gain.gain.value = 0;
+    node.connect(gain).connect(ctx.destination);
+    Object.assign(audio, { node, gain });
+  }
+  function toggleSound() {
+    if (audio.busy) return;
+    const turnOn = !audio.on;
+    if (turnOn) unlockAudio();                 // synchronous, inside the tap
+    audio.busy = true;
+    (async () => {
+      try {
+        await buildGraph();
+        const { ctx, gain } = audio;
+        const now = ctx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        if (turnOn) {
+          if (ctx.state !== 'running') await ctx.resume();
+          gain.gain.linearRampToValueAtTime(1, now + 1.2);
+          audio.on = true;
+        } else {
+          gain.gain.linearRampToValueAtTime(0, now + 0.6);
+          audio.on = false;
+          setTimeout(() => { if (!audio.on) { ctx.suspend(); audio.el?.pause(); } }, 700);
+        }
+      } catch (e) {
+        console.error('[reflecting] audio', e);
+        audio.on = false;
+      } finally {
+        audio.busy = false;
+        soundBtn?.setAttribute('aria-pressed', String(audio.on));
+      }
+    })();
+  }
+  // iOS can leave the context "interrupted" after a call, Siri or a lock.
+  // The next tap anywhere brings it back.
+  addEventListener('pointerdown', () => {
+    if (audio.on && audio.ctx && audio.ctx.state !== 'running') { audio.ctx.resume(); audio.el?.play().catch(() => {}); }
+  }, true);
   soundBtn?.addEventListener('click', e => { e.stopPropagation(); toggleSound(); });
 
   // ── Frame loop ─────────────────────────────────────────────────────
@@ -585,10 +626,10 @@
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { running = false; audio.ctx?.suspend(); }
+    if (document.hidden) { running = false; audio.ctx?.suspend(); audio.el?.pause(); }
     else {
       running = true; last = performance.now();
-      if (audio.on) audio.ctx?.resume();
+      if (audio.on) { audio.ctx?.resume(); audio.el?.play().catch(() => {}); }
       requestAnimationFrame(frame);
     }
   });
