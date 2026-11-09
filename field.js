@@ -312,10 +312,17 @@ out vec4 outColor;
     if (px !== null) addStroke(px, py, x, y, 1);
     px = x; py = y; lastMove = performance.now();
   }
+  // Pointer events cover mouse, pen and touch (touch-action: none on the page keeps
+  // iOS from scrolling / bouncing / selecting the title instead of streaming moves).
+  window.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') { px = e.clientX; py = e.clientY; lastMove = performance.now(); } }, { passive: true });
   window.addEventListener('pointermove', e => moveTo(e.clientX, e.clientY), { passive: true });
+  const lift = e => { if (e.pointerType !== 'mouse') px = null; };
+  window.addEventListener('pointerup', lift);
+  window.addEventListener('pointercancel', lift);
   window.addEventListener('pointerleave', () => { px = null; });
-  window.addEventListener('touchmove', e => { const t = e.touches[0]; if (t) moveTo(t.clientX, t.clientY); }, { passive: true });
-  window.addEventListener('touchend', () => { px = null; });
+  // Belt and braces for older iOS: never let a drag pan or rubber-band the page.
+  document.addEventListener('touchmove', e => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+  document.addEventListener('gesturestart', e => e.preventDefault());
 
   // When nobody is breathing on it, now and then the air does (very gently).
   let auto = null, nextAuto = 0;
