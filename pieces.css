@@ -1,0 +1,4 @@
+/* ── Piece details (titles from the 2003–2006 portfolio) ── */
+.page-title + .piece-meta { margin: -40px 0 56px; color: var(--bone-dim); }
+.plate { gap: 12px; }
+.plate figcaption { justify-self: center; }
