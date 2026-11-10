@@ -91,7 +91,11 @@
     .gel-row button { width: 18px; height: 18px; }
   }
 </style>
-<script>if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');</script>
+<script>
+  // Sound (AudioWorklet) only works on a secure page — send http:// visitors to https://
+  if (location.protocol === 'http:' && location.hostname.endsWith('eamonbrown.com')) location.replace('https:' + location.href.slice(5));
+  if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+</script>
 </head>
 <body>
 <canvas class="realm" aria-label="Reflecting — live generative glass. Drag to cut it; keep still to let it settle."></canvas>
