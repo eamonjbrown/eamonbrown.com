@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Reflecting — Aumara Realms — Eamon Brown</title>
-<meta name="description" content="Reflecting, a realm from Aumara Realms by Eamon Brown — panes of inked glass, cut and overlaid, live in the browser.">
+<meta name="description" content="Reflecting, a realm from Aumara Realms by Eamon Brown — overlapping coloured layers you can cut through, live in the browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=Jost:wght@100;200;300;400&display=swap" rel="stylesheet">
@@ -18,17 +18,15 @@
   }
   canvas.realm { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
 
-  /* Chrome — quiet, and quieter still while you carve or sit still */
+  /* Controls: back link, sound, ink sets */
   .chrome { position: fixed; inset: 0; z-index: 5; pointer-events: none; isolation: isolate; }
-  .chrome > * { position: absolute; pointer-events: auto; transition: opacity 1.4s ease; }
-  .quiet .chrome > *, .carving .chrome > * { opacity: 0; }
-  .quiet .chrome > *:hover, .quiet .chrome > *:focus-within { opacity: 1; }
+  .chrome > * { position: absolute; pointer-events: auto; }
   .chrome, .chrome * { text-shadow: 0 0 6px #000, 0 0 14px #000, 0 0 22px rgba(0,0,0,.8); }
   .mono {
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
     color: rgba(232, 228, 222, 0.72);
   }
-  .back-link { top: max(24px, env(safe-area-inset-top)); left: clamp(16px, 4vw, 40px); transition: color .3s, opacity 1.4s; }
+  .back-link { top: max(24px, env(safe-area-inset-top)); left: clamp(16px, 4vw, 40px); transition: color .3s; }
   .back-link:hover { color: var(--bone); }
 
   .sound {
@@ -50,15 +48,6 @@
   .sound[data-state="starting"] .starting, .sound[data-state="blocked"] .blocked { display: inline; }
   .sound:hover { color: var(--bone); }
 
-  .title-block { left: clamp(16px, 4vw, 40px); bottom: max(26px, env(safe-area-inset-bottom)); max-width: min(520px, 62vw); }
-  .title-block h1 {
-    margin: 0 0 10px; font-weight: 200; font-size: clamp(22px, 3vw, 34px);
-    letter-spacing: 0.42em; text-transform: uppercase; color: var(--bone);
-  }
-  .title-block p { margin: 0; line-height: 1.7; }
-  .hint { margin-top: 14px !important; color: rgba(232, 228, 222, 0.5) !important; transition: opacity 1.2s; }
-  .hinted .hint { opacity: 0; }
-
   .gels { right: clamp(16px, 4vw, 40px); bottom: max(26px, env(safe-area-inset-bottom)); display: grid; justify-items: end; gap: 12px; }
   .gel-row { display: flex; gap: 9px; }
   .gel-row button {
@@ -75,7 +64,7 @@
 
   .fallback { position: fixed; inset: 0; display: none; place-items: center; padding: 24px; text-align: center; }
   .no-gl .fallback { display: grid; }
-  .no-gl canvas.realm, .no-gl .gels, .no-gl .sound, .no-gl .hint { display: none; }
+  .no-gl canvas.realm, .no-gl .gels, .no-gl .sound { display: none; }
   .fallback img { max-height: 70vh; width: auto; border-radius: 22px; border: 1px solid var(--line); margin: 0 auto 20px; }
 
   /* Embedded on the Aumara Realms page: picture only */
@@ -83,10 +72,7 @@
   .embed canvas.realm { cursor: default; }
 
   @media (max-width: 640px) {
-    .title-block { max-width: calc(100vw - 32px); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 40px); }
-    .title-block .tagline { display: none; }
     .gels { left: clamp(16px, 4vw, 40px); right: auto; justify-items: start; }
-    .gel-name { display: none; }
     .gel-row { gap: 11px; }
     .gel-row button { width: 18px; height: 18px; }
   }
@@ -98,7 +84,7 @@
 </script>
 </head>
 <body>
-<canvas class="realm" aria-label="Reflecting — live generative glass. Drag to cut it; keep still to let it settle."></canvas>
+<canvas class="realm" aria-label="Reflecting — overlapping coloured layers. Drag to cut through them; keep still and they settle."></canvas>
 
 <div class="chrome">
   <a class="back-link mono" href="aumara-realms.html">← Aumara Realms</a>
@@ -108,14 +94,7 @@
     <span class="off">Sound off</span><span class="starting">Starting…</span><span class="on">Sound on</span><span class="blocked">Sound blocked · tap to retry</span>
   </button>
 
-  <div class="title-block">
-    <h1>Reflecting</h1>
-    <p class="mono tagline">Panes of inked glass, cut and overlaid. Colours deepen where they cross.</p>
-    <p class="mono hint">Drag to cut the glass · Keep still and it settles</p>
-  </div>
-
   <div class="gels" role="group" aria-label="Ink set">
-    <span class="mono gel-name">Cycle</span>
     <div class="gel-row">
       <button data-gel="0" aria-label="Riso Classic" title="Riso Classic" style="--sw: conic-gradient(#ff268c 0 33%, #1a73ff 0 66%, #ffe60d 0)"></button>
       <button data-gel="1" aria-label="Ink Wash"     title="Ink Wash"     style="--sw: conic-gradient(#f5f5f0 0 33%, #8c8f94 0 66%, #292b30 0)"></button>
