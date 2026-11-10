@@ -54,14 +54,11 @@ class ReflectingProcessor extends AudioWorkletProcessor {
     const out = outputs[0], L = out[0], R = out[1] || out[0], n = L.length;
     const sr = sampleRate, dt = n / sr, inv = 1 / sr, I = this.in, s = this.s;
 
-    // Slider targets: device rest values, nudged by attention.
-    const tgt = {
-      rate: 0.013 + I.activity * 0.22,                 // focus stirs the glitter
-      pad: 0.62 + I.calm * 0.25,                       // stillness lets the pad bloom
-      vowel: 0.30 + I.activity * 0.35,
-      reg: 0.039, bright: 0.271 + I.activity * 0.12,
-      sweep: 0.408, fold: 0.233, echo: 0.835,
-    };
+    // Slider values exactly as set in the app's Sonic drawer (trace mode):
+    // Shimmer 1, Pad Depth 72, Vowel Morph 45, Register 4, Brightness 27,
+    // Filter Sweep 41, Fold 23, Echo 84. Gesture still stirs the shimmer and
+    // brightness below, as on device.
+    const tgt = { rate: 0.013, pad: 0.721, vowel: 0.452, reg: 0.039, bright: 0.271, sweep: 0.408, fold: 0.233, echo: 0.835 };
     const lp = 1 - Math.exp(-dt / 2);
     for (const k in tgt) s[k] += lp * (tgt[k] - s[k]);
 
@@ -143,8 +140,7 @@ class ReflectingProcessor extends AudioWorkletProcessor {
       for (let i = 0; i < n; i++) { const d = L[i]; L[i] = d + (this.sweep.run(d) - d) * s.sweep; }
     }
 
-    // Echo — fixed 0.42 s, feedback + send only (click-free). Wet goes a little
-    // wider in the stereo field than the dry voice.
+    // Echo — fixed 0.42 s, feedback + send only (click-free).
     const delay = Math.min(Math.floor(0.42 * sr), this.dLen - 1);
     const fb = 0.30 + s.echo * 0.45;
     const send = Math.min(Math.max(s.echo * 0.6 + this.gSpeed * this.gTouch * 0.2, 0), 0.8);
@@ -167,9 +163,8 @@ class ReflectingProcessor extends AudioWorkletProcessor {
       const x = L[i];
       const y = x - this.dcX + 0.995 * this.dcY;
       this.dcX = x; this.dcY = Math.abs(y) < 1e-15 ? 0 : y;
-      const wet = dOut * send;
-      L[i] = Math.tanh((y + wet * 0.85) * g) * 0.89;
-      R[i] = Math.tanh((y + wet * 1.0) * g) * 0.89;
+      // Mono, like the app (it copies left to right for this realm).
+      L[i] = R[i] = Math.tanh((y + dOut * send) * g) * 0.89;
     }
     return true;
   }
