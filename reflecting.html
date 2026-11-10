@@ -40,12 +40,14 @@
     display: inline-flex; gap: 3px; align-items: center; height: 14px;
   }
   .sound i b { width: 2px; height: 3px; background: currentColor; border-radius: 1px; transition: height .4s; }
-  .sound[aria-pressed="true"] i b { animation: bar 1.6s ease-in-out infinite; }
-  .sound[aria-pressed="true"] i b:nth-child(2) { animation-delay: -.5s; }
-  .sound[aria-pressed="true"] i b:nth-child(3) { animation-delay: -1s; }
+  .sound[data-state="on"] i b { animation: bar 1.6s ease-in-out infinite; }
+  .sound[data-state="on"] i b:nth-child(2) { animation-delay: -.5s; }
+  .sound[data-state="on"] i b:nth-child(3) { animation-delay: -1s; }
+  .sound[data-state="starting"] i b { animation: bar .5s ease-in-out infinite; }
   @keyframes bar { 0%, 100% { height: 3px; } 50% { height: 13px; } }
-  .sound .on { display: none; } .sound[aria-pressed="true"] .on { display: inline; }
-  .sound[aria-pressed="true"] .off { display: none; }
+  .sound > span { display: none; }
+  .sound[data-state="off"] .off, .sound[data-state="on"] .on,
+  .sound[data-state="starting"] .starting, .sound[data-state="blocked"] .blocked { display: inline; }
   .sound:hover { color: var(--bone); }
 
   .title-block { left: clamp(16px, 4vw, 40px); bottom: max(26px, env(safe-area-inset-bottom)); max-width: min(520px, 62vw); }
@@ -97,9 +99,9 @@
 <div class="chrome">
   <a class="back-link mono" href="aumara-realms.html">← Aumara Realms</a>
 
-  <button class="sound mono" type="button" aria-pressed="false" aria-label="Sound">
+  <button class="sound mono" type="button" aria-pressed="false" aria-label="Sound" data-state="off">
     <i aria-hidden="true"><b></b><b></b><b></b></i>
-    <span class="off">Sound off</span><span class="on">Sound on</span>
+    <span class="off">Sound off</span><span class="starting">Starting…</span><span class="on">Sound on</span><span class="blocked">Sound blocked · tap to retry</span>
   </button>
 
   <div class="title-block">
@@ -130,6 +132,6 @@
   </div>
 </div>
 
-<script src="reflecting.js"></script>
+<script src="reflecting.js?v=3"></script>
 </body>
 </html>

@@ -466,10 +466,18 @@
     const b = ctx.createBuffer(1, 1, 22050), src = ctx.createBufferSource();   // classic iOS unlock
     src.buffer = b; src.connect(ctx.destination); src.start(0);
   }
+  const withTimeout = (pr, ms, what) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out')), ms))]);
+  function showSound(state, msg) {           // off | starting | on | blocked
+    if (!soundBtn) return;
+    soundBtn.dataset.state = state;
+    soundBtn.setAttribute('aria-pressed', String(state === 'on' || state === 'starting'));
+    soundBtn.title = msg || '';
+  }
   async function buildGraph() {
     if (audio.node) return;
     const ctx = audio.ctx;
-    await ctx.audioWorklet.addModule('reflecting-audio.js');
+    if (!ctx.audioWorklet) throw new Error('This browser has no AudioWorklet');
+    await withTimeout(ctx.audioWorklet.addModule('reflecting-audio.js?v=3'), 8000, 'Loading sound');
     const node = new AudioWorkletNode(ctx, 'reflecting', { numberOfInputs: 0, outputChannelCount: [2] });
     const gain = ctx.createGain(); gain.gain.value = 0;
     node.connect(gain).connect(ctx.destination);
@@ -478,7 +486,11 @@
   function toggleSound() {
     if (audio.busy) return;
     const turnOn = !audio.on;
-    if (turnOn) unlockAudio();                 // synchronous, inside the tap
+    if (turnOn) {
+      showSound('starting');                   // answer the tap at once
+      try { unlockAudio(); }                   // synchronous, inside the tap
+      catch (e) { console.error('[reflecting] audio', e); showSound('blocked', String(e.message || e)); return; }
+    }
     audio.busy = true;
     (async () => {
       try {
@@ -488,20 +500,22 @@
         gain.gain.cancelScheduledValues(now);
         gain.gain.setValueAtTime(gain.gain.value, now);
         if (turnOn) {
-          if (ctx.state !== 'running') await ctx.resume();
+          if (ctx.state !== 'running') await withTimeout(ctx.resume(), 3000, 'Starting audio');
           gain.gain.linearRampToValueAtTime(1, now + 1.2);
           audio.on = true;
+          showSound('on');
         } else {
           gain.gain.linearRampToValueAtTime(0, now + 0.6);
           audio.on = false;
+          showSound('off');
           setTimeout(() => { if (!audio.on) { ctx.suspend(); audio.el?.pause(); } }, 700);
         }
       } catch (e) {
         console.error('[reflecting] audio', e);
         audio.on = false;
+        showSound('blocked', String(e.message || e));
       } finally {
         audio.busy = false;
-        soundBtn?.setAttribute('aria-pressed', String(audio.on));
       }
     })();
   }
