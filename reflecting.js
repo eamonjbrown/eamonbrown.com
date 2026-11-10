@@ -438,14 +438,12 @@
   }
 
   // ── Palettes ───────────────────────────────────────────────────────
-  const GELS = ['Riso Classic', 'Ink Wash', 'Huichol', 'Primary', 'Oxide', 'Midnight', 'Duotone', 'Cycle'];
-  let gelChoice = 7, cycleIndex = 0, cycleClock = 0;
+  const GELS = ['Riso Classic', 'Ink Wash', 'Huichol', 'Primary', 'Oxide', 'Midnight', 'Duotone'];
+  let gelChoice = 0;
   const gelButtons = [...document.querySelectorAll('[data-gel]')];
   function setGel(i) {
     gelChoice = i;
     gelButtons.forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.gel === i)));
-    const lab = document.querySelector('.gel-name');
-    if (lab) lab.textContent = GELS[i];
   }
   gelButtons.forEach(b => b.addEventListener('click', () => setGel(+b.dataset.gel)));
   setGel(gelChoice);
@@ -504,7 +502,7 @@
     if (audio.node) return;
     const ctx = audio.ctx;
     if (!ctx.audioWorklet) throw new Error('This browser has no AudioWorklet');
-    await withTimeout(ctx.audioWorklet.addModule('reflecting-audio.js?v=3'), 8000, 'Loading sound');
+    await withTimeout(ctx.audioWorklet.addModule('reflecting-audio.js?v=4'), 8000, 'Loading sound');
     const node = new AudioWorkletNode(ctx, 'reflecting', { numberOfInputs: 0, outputChannelCount: [2] });
     const gain = ctx.createGain(); gain.gain.value = 0;
     node.connect(gain).connect(ctx.destination);
@@ -594,10 +592,7 @@
     animT += dt * (0.38 + 0.37 * a) * (reduceMotion ? 0.4 : 1);
     const breath = 0.5 + 0.5 * Math.sin(now * 2 * Math.PI / 10.9);   // ~5.5 breaths/min
 
-    // Palette clocks.
-    cycleClock += dt;
-    if (cycleClock >= 30) { cycleClock -= 30; cycleIndex = (cycleIndex + 1) % 7; }
-    const gel = gelChoice === 7 ? cycleIndex : gelChoice;
+    const gel = gelChoice;
 
     // Age cuts.
     for (const c of cuts) c.age += dt;

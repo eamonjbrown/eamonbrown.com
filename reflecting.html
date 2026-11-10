@@ -58,9 +58,6 @@
   }
   .gel-row button:hover { transform: scale(1.18); }
   .gel-row button[aria-pressed="true"] { border-color: var(--bone); transform: scale(1.18); outline: 1px solid rgba(232,228,222,.35); outline-offset: 3px; }
-  .gel-row button[data-gel="7"] { background: conic-gradient(#ff2a8c, #1a73ff, #ffe60d, #33d99e, #e0611a, #ff2a8c); animation: spin 14s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .gel-row button[data-gel="7"][aria-pressed="true"] { animation: spin 14s linear infinite; }
 
   .fallback { position: fixed; inset: 0; display: none; place-items: center; padding: 24px; text-align: center; }
   .no-gl .fallback { display: grid; }
@@ -103,7 +100,6 @@
       <button data-gel="4" aria-label="Oxide"        title="Oxide"        style="--sw: conic-gradient(#33d99e 0 33%, #e0611a 0 66%, #942185 0)"></button>
       <button data-gel="5" aria-label="Midnight"     title="Midnight"     style="--sw: conic-gradient(#1775de 0 33%, #7514b0 0 66%, #fa8017 0)"></button>
       <button data-gel="6" aria-label="Duotone"      title="Duotone"      style="--sw: conic-gradient(#ff4d47 0 33%, #149e99 0 66%, #b8babf 0)"></button>
-      <button data-gel="7" aria-label="Cycle through all inks" title="Cycle"></button>
     </div>
   </div>
 </div>
@@ -115,6 +111,6 @@
   </div>
 </div>
 
-<script src="reflecting.js?v=3"></script>
+<script src="reflecting.js?v=4"></script>
 </body>
 </html>
