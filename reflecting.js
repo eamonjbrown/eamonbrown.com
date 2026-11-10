@@ -233,6 +233,33 @@
   uniform vec2  uRes;
   uniform float uDt, uDepth, uReset;
   out vec4 outColor;
+  // Clamped Catmull-Rom resampling of the past. Plain bilinear softens the
+  // receding copies a little every frame, which washes out the crisp stepped
+  // contour lines the app shows; bicubic keeps them sharp, and clamping to the
+  // 2x2 neighbourhood stops it ringing as it recurses.
+  vec3 sharpSample(sampler2D tex, vec2 uv) {
+    vec2 ts = vec2(textureSize(tex, 0));
+    vec2 p = uv * ts - 0.5, i = floor(p), f = p - i;
+    vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+    vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+    vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+    vec2 w3 = f * f * (-0.5 + 0.5 * f);
+    vec2 w12 = w1 + w2, o12 = w2 / w12;
+    vec2 t0 = (i - 0.5) / ts, t3 = (i + 2.5) / ts, t12 = (i + 0.5 + o12) / ts;
+    vec3 c = (texture(tex, vec2(t12.x, t0.y)).rgb * w12.x * w0.y
+           +  texture(tex, vec2(t0.x, t12.y)).rgb * w0.x * w12.y
+           +  texture(tex, t12).rgb               * w12.x * w12.y
+           +  texture(tex, vec2(t3.x, t12.y)).rgb * w3.x * w12.y
+           +  texture(tex, vec2(t12.x, t3.y)).rgb * w12.x * w3.y)
+           / (w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y);
+    ivec2 b = ivec2(i);
+    ivec2 mx = ivec2(ts) - 1;
+    vec3 a1 = texelFetch(tex, clamp(b, ivec2(0), mx), 0).rgb;
+    vec3 a2 = texelFetch(tex, clamp(b + ivec2(1, 0), ivec2(0), mx), 0).rgb;
+    vec3 a3 = texelFetch(tex, clamp(b + ivec2(0, 1), ivec2(0), mx), 0).rgb;
+    vec3 a4 = texelFetch(tex, clamp(b + ivec2(1, 1), ivec2(0), mx), 0).rgb;
+    return clamp(c, min(min(a1, a2), min(a3, a4)), max(max(a1, a2), max(a3, a4)));
+  }
   void main() {
     vec2 uv = gl_FragCoord.xy / uRes;                 // GL bottom-up
     float aspect = uRes.x / uRes.y;
@@ -246,7 +273,7 @@
     float tau = 0.25 + uDepth * 2.95;
     float gate = smoothstep(0.0, 0.08, uDepth) * (1.0 - uReset);
     float inside = step(0.0, pu.x) * step(pu.x, 1.0) * step(0.0, pu.y) * step(pu.y, 1.0);
-    vec3 past = texture(uPrev, pu).rgb * exp(-dt / tau) * gate * inside;
+    vec3 past = sharpSample(uPrev, pu) * exp(-dt / tau) * gate * inside;
     vec4 glass = texelFetch(uGlass, ivec2(gl_FragCoord.xy), 0);
     outColor = vec4(mix(past, glass.rgb, glass.a), 1.0);
   }`;
@@ -547,8 +574,10 @@
     const moving = S.lastMove > 0 && now - S.lastMove < 0.09;
     const spT = moving ? S.rawSpeed : 0;
     S.speed += (spT - S.speed) * (spT > S.speed ? ease(dt, 0.03) : ease(dt, 0.28));
-    const actT = clamp01(S.speed * 2.4 + (S.down && moving ? 0.25 : 0));
-    S.activity += (actT - S.activity) * (actT > S.activity ? ease(dt, 0.45) : ease(dt, 5.5));
+    // Slow to rise, slower to fall: the realm leans toward focus over a couple
+    // of seconds of movement instead of jumping with every flick.
+    const actT = clamp01(S.speed * 1.6 + (S.down && moving ? 0.15 : 0));
+    S.activity += (actT - S.activity) * (actT > S.activity ? ease(dt, 2.2) : ease(dt, 8));
     S.stillFor = moving ? 0 : S.stillFor + dt;
     const calmT = clamp01((S.stillFor - 3) / 25) * (1 - S.activity);
     S.calmDepth += (calmT - S.calmDepth) * ease(dt, calmT > S.calmDepth ? 6 : 1.2);
@@ -558,7 +587,11 @@
 
     const a = S.activity, calm = 1 - a;
     // Calm slows everything, as on device (trace mode idles at 0.3×).
-    animT += dt * (0.42 + 0.58 * a) * (reduceMotion ? 0.4 : 1);
+    // Movement speeds the glass up only by changing how fast time advances.
+    // (Never by changing the shader's rate constants directly: time is already
+    // large, so nudging a rate jumps every shape's phase at once — that was
+    // the jittery, sporadic look.)
+    animT += dt * (0.38 + 0.37 * a) * (reduceMotion ? 0.4 : 1);
     const breath = 0.5 + 0.5 * Math.sin(now * 2 * Math.PI / 10.9);   // ~5.5 breaths/min
 
     // Palette clocks.
@@ -581,11 +614,11 @@
     const ug = P.glass.u;
     gl.uniform2f(ug.uRes, W, H);
     gl.uniform1f(ug.uTime, animT + 40);                       // skip the t≈0 start pose
-    gl.uniform1f(ug.uFracture, lerp(0.30, 0.88, a));          // calm → ordered
+    gl.uniform1f(ug.uFracture, 0.45);                         // app trace-mode values: held steady
     gl.uniform1f(ug.uEcho, lerp(0.34, 0.72, S.calmDepth));    // depth of stillness = depth of image
     gl.uniform1f(ug.uDensity, 0.48);
-    gl.uniform1f(ug.uMorph, lerp(0.32, 0.85, a));             // calm → slower
-    gl.uniform1f(ug.uFocus, clamp01(0.5 + (a - 0.3) * 0.5));  // focus leans the palette
+    gl.uniform1f(ug.uMorph, 0.50);
+    gl.uniform1f(ug.uFocus, 0.5);
     gl.uniform1f(ug.uCoh, lerp(0.55, 0.95, calm));            // steadiness = clean registration
     gl.uniform1f(ug.uBreath, breath);
     gl.uniform1i(ug.uGel, gel);
