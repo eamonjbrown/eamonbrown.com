@@ -155,7 +155,7 @@ img, video { display: block; max-width: 100%; }
 .plate img { max-height: 86vh; width: auto; max-width: 100%; }
 .phones { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(12px, 2vw, 28px); margin-top: 64px; }
 .phones img { width: 100%; border-radius: 22px; border: 1px solid var(--line); }
-@media (max-width: 760px) { .phones { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .phones img { border-radius: 12px; } }
 .play-frame { border: 1px solid var(--line); background: #f4efe3; }
 .play-frame iframe { display: block; width: 100%; height: min(1060px, 140vw); border: 0; }
 .play-note { margin: 14px 0 56px; }
@@ -223,7 +223,27 @@ body.ink .home .enter:hover { color: #e0573f; }
   transition: background-size .6s ease;
 }
 .realm-live:hover .realm-live-cta { background-size: 100% 1px; }
+.realm-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(12px, 2vw, 28px); margin: 0 0 64px; }
+.realm-tiles figure { margin: 0; display: grid; gap: 12px; }
+.realm-tiles .realm-live { margin: 0; aspect-ratio: 4 / 3; }
+.realm-tiles figcaption {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--bone-faint);
+}
+.realm-tiles-one { grid-template-columns: 1fr; }
+.realm-live-paper { background: #f6f3e9; }
+.realm-live-paper .realm-live-label { background: none; }
+.realm-live-paper .realm-live-cta { color: #1a1614; }
+.realm-tiles-one .realm-live { aspect-ratio: 16 / 9; }
 @media (max-width: 760px) {
-  .realm-live { aspect-ratio: 4 / 5; }
-  .realm-live-label { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .realm-tiles { grid-template-columns: 1fr; gap: 28px; }
+  .realm-tiles-one .realm-live { aspect-ratio: 4 / 5; }
+}
+
+/* ── Work in progress: the still is softened, with a label over it ── */
+.wip { position: relative; overflow: hidden; }
+.wip img { filter: blur(2.5px) brightness(0.82); transform: scale(1.02); }
+.wip::after {
+  content: "In progress"; position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--bone);
+  text-shadow: 0 0 12px rgba(0,0,0,.8);
 }

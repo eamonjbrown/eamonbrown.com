@@ -18,12 +18,15 @@
 
   const canvas = document.querySelector('canvas.realm');
   if (!canvas) return;
-  const EMBED = new URLSearchParams(location.search).has('embed');
+  const QS = new URLSearchParams(location.search);
+  const STILL = location.hash === '#still';                 // thumbnail: render one settled frame, then stop
+  const EMBED = QS.has('embed') || STILL;
+  let stillN = 0, stillNow = 20;
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const gl = canvas.getContext('webgl2', {
     antialias: false, alpha: false, depth: false, stencil: false,
-    preserveDrawingBuffer: false, powerPreference: 'high-performance',
+    preserveDrawingBuffer: STILL, powerPreference: 'high-performance',
   });
   if (!gl) { document.documentElement.classList.add('no-gl'); return; }
 
@@ -358,6 +361,7 @@
     free(glassT); free(wellA); free(wellB);
     glassT = target(W, H); wellA = target(W, H); wellB = target(W, H);
     wellReset = true;
+    if (STILL && stillN > 0) { stillN = 0; if (!running) { running = true; requestAnimationFrame(frame); } }
   }
   addEventListener('resize', resize);
   resize();
@@ -559,12 +563,23 @@
   const ease = (dt, tau) => 1 - Math.exp(-dt / tau);
   const clamp01 = v => Math.min(1, Math.max(0, v));
 
+  const STILL_FRAMES = 150;
   function frame(nowMs) {
     if (!running) return;
+    if (STILL) {
+      // Build up the picture off-clock, a few frames per tick, then stop.
+      for (let k = 0; k < 6 && stillN < STILL_FRAMES; k++, stillN++) { stillNow += 1 / 30; step(1 / 30, stillNow); }
+      if (stillN >= STILL_FRAMES) { running = false; return; }
+      requestAnimationFrame(frame);
+      return;
+    }
     requestAnimationFrame(frame);
     const dt = Math.min((nowMs - last) / 1000, 0.1);
     last = nowMs;
-    const now = nowMs / 1000;
+    step(dt, nowMs / 1000);
+  }
+
+  function step(dt, now) {
 
     if (EMBED) runPhantom(dt, now);
 
@@ -658,6 +673,7 @@
     // Adaptive quality during the first seconds, then hands off.
     // Early on it can step both ways; afterwards it only steps down if the
     // GPU really falls behind (e.g. a hot phone), never back up mid-viewing.
+    if (STILL) return;
     perf.acc += dt; perf.n++;
     if (perf.n >= 40) {
       const avg = perf.acc / perf.n, early = now - start / 1000 < 12;
@@ -668,6 +684,7 @@
   }
 
   document.addEventListener('visibilitychange', () => {
+    if (STILL) return;
     if (document.hidden) { running = false; audio.ctx?.suspend(); audio.el?.pause(); }
     else {
       running = true; last = performance.now();
