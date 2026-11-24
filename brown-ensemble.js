@@ -1,8 +1,11 @@
 /* BROWN ENSEMBLE — web version.
    Every mark is cut from 600 dpi scans of Bob Brown's 1450–1950 (1929) and
    traced as a filled outline, an "atom". A small ensemble of performers moves
-   across the page. Each holds one atom and morphs into the next; what it picks
-   next is steered by a similarity map of the marks themselves (kinship).
+   across the page. On the web the atoms are joined back into the passages they
+   were cut from (a line, a stanza, a drawing with its words). Each performer
+   holds one passage and morphs into another: often the one that follows it in
+   the poem, otherwise a relative, chosen first from the same page of the book
+   and then by a similarity map of the marks themselves (kinship).
 
    Ported from the native app (Performer / Ensemble / MotionStyle / Grammar)
    by way of its browser port. No headband on the web, so the grammar reads
@@ -17,13 +20,13 @@
   const STILL = location.hash === '#still';     // thumbnail: one settled frame, then stop
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const coarse = matchMedia('(pointer: coarse)').matches;
-  const DATA = 'be/';
+  const DATA = 'be/', VER = '?v=6';
 
   // ── Tuning: Eamon's web lock of Oct 21, with fewer and smaller figures for a full-screen page ──────────────────────────────
   const S = {
-    count: 9, speed: 0.25, size: 0.6, tempo: 4.3, hold: 6, range: 2.5,
+    count: 7, speed: 0.25, size: 0.6, tempo: 4.3, hold: 6, range: 2.5,
     inkFade: 0.3, tone: 0.5, veil: 0.1, excursion: 29.6, surge: 0.2,
-    encDist: 0.2, encCool: 16.5, spacing: 1.3, read: 1, attract: 1.1,
+    encDist: 0.2, encCool: 16.5, spacing: 1.3, read: 1, attract: 0.6,
   };
   const TAU_KIN = 0.04, MEMORY = 12;            // kinship temperature, atoms each performer avoids repeating
   const PAPER = '#f6f3e9';                      // the app's paper and ink
@@ -52,7 +55,7 @@
         for (let i = 1; i < n; i++) { x += dv.getInt8(o); y += dv.getInt8(o + 1); o += 2; pts[2 * i] = x * q; pts[2 * i + 1] = y * q; }
         subs.push(pts);
       }
-      atoms.push({ subs, a: IDX.aspect[atoms.length], path: null, rings: null });
+      { const i = atoms.length; atoms.push({ subs, a: IDX.aspect[i], cls: IDX.cls[i], rows: IDX.rows[i], page: IDX.page[i], path: null, rings: null }); }
     }
     loaded = atoms.length;
   }
@@ -140,13 +143,17 @@
       return Math.floor(Math.random() * n);
     }
     const dim = IDX.dim, s2 = 1 / (IDX.kinScale * IDX.kinScale), steer = 1 - 2 * variety;
-    const row = cur * dim, sc = sims();
+    const row = cur * dim, sc = sims(), page = atoms[cur].page;
+    // keep drawings and writing in balance: whichever the page is short of is favoured
+    let nd = 0, nl = 0;
+    for (const q of perf) if (q !== p && !q.dormant && q.atom >= 0) { nl++; if (atoms[q.next != null ? q.next : q.atom].cls === 'd') nd++; }
+    const wantD = nl ? (nd / nl < 0.42 ? 0.05 : nd / nl > 0.6 ? -0.05 : 0) : 0;
     let best = -Infinity;
     for (let i = 0; i < n; i++) {
       if (!ok(i)) { sc[i] = -Infinity; continue; }
       let d = 0; const o = i * dim;
       for (let k = 0; k < dim; k++) d += KIN[row + k] * KIN[o + k];
-      const v = steer * d * s2;
+      const v = steer * d * s2 + (atoms[i].page === page ? 0.06 : 0) + (atoms[i].cls === 'd' ? wantD : -wantD);   // marks from the same page of the book are family first
       sc[i] = v; if (v > best) best = v;
     }
     if (best === -Infinity) return Math.floor(Math.random() * n);
@@ -157,8 +164,11 @@
     return n - 1;
   }
 
+  // The passage that follows atom `i` on its page of the book, if it is loaded and free.
+  function after(i, used) { const n = IDX.next[i]; return n != null && n >= 0 && n < loaded && !used.has(n) ? n : -1; }
+
   // ── Motion styles (MotionStyle.swift) ──────────────────────────────
-  function drift(p, target, dt, rate) { if (p.role) return; p.depth = clamp(p.depth + (target - p.depth) * dt * rate, 0, 1); }
+  function drift() {}                              // depth is no longer steered by the style: see the current in step()
   function regen(p, tan) {
     const s = p.st;
     s.p1 = [rand(-1, 1), rand(-0.8, 0.8)];
@@ -214,14 +224,14 @@
       },
     },
   };
-  const KINDS = Object.keys(STYLES);
+  const KINDS = ['fluid', 'fluid', 'orbital', 'traverse', 'geologic'];   // smooth styles only
   function setStyle(p, kind) {
     p.kind = kind || KINDS[Math.floor(Math.random() * KINDS.length)];
     STYLES[p.kind].enter(p);
     p.styleLeft = S.hold * rand(0.6, 1.6);
     // each phrase of movement has its own pace and its own slight tilt
-    p.pace = Math.random() < 0.25 ? rand(0.3, 0.6) : rand(0.8, 2.3);
-    p.tiltT = rand(-0.1, 0.1);
+    p.pace = rand(0.7, 1.5);
+    p.tiltT = rand(-0.07, 0.07);
   }
 
   // ── Stage ──────────────────────────────────────────────────────────
@@ -240,9 +250,16 @@
   }
   // Pixels per atom unit at mid depth.
   function baseScale(i, sizeMul) {
-    const a = atoms[i].a;
+    const at = atoms[i], a = at.a;
+    if (at.cls === 'p') {
+      const line = 0.05 * REF * S.size * sizeMul;                    // height of one line of writing at mid depth
+      let h = at.rows * line * 1.2, w = h * a;
+      const k = Math.min(1, W * 0.9 / w, H * 0.62 / h);              // a long line or a tall stanza still fits the page
+      w *= k; h *= k;
+      return Math.max(w, h) / 160;
+    }
     let w = 405 / 1600 * REF * S.size * sizeMul * (a > 1 ? Math.sqrt(a) : 1);
-    if (a > 1) w = Math.min(w, W * 0.92);     // long phrases still fit a narrow screen
+    if (a > 1) w = Math.min(w, W * 0.92);
     return w / 160;
   }
   const depthScale = z => Math.min(8, Math.pow(2, (0.5 - z) * S.range * 1.5));
@@ -250,12 +267,12 @@
   // ── Performers ─────────────────────────────────────────────────────
   let perf = [];
   const inUse = () => { const u = new Set(); for (const p of perf) { if (p.dormant) continue; u.add(p.atom); if (p.next != null) u.add(p.next); } return u; };
-  const needRead = i => S.read * (1.4 + 0.32 * Math.min(atoms[i].a, 10));
+  const needRead = i => S.read * (atoms[i].cls === 'p' ? 1.3 + 1.15 * atoms[i].rows + 0.12 * Math.min(atoms[i].a, 8) : 1.8);   // time to read it
   const isRead = p => p.readT >= needRead(p.atom);
 
   function newPerformer(i, n) {
     const p = {
-      i, x: rand(-0.85, 0.85), y: rand(-0.75, 0.75), depth: clamp(i / (n - 1 || 1) * 0.83, 0, 0.9),
+      i, x: rand(-0.8, 0.8), y: rand(-0.7, 0.7), depth: 0.42 + i / (n - 1 || 1) * 0.9, zv: rand(0.016, 0.03),
       atom: -1, next: null, k: 0, mdur: 1, pairs: null, recent: [],
       nextMorph: (0.3 + i * 0.17) * S.tempo, encCool: 0, dormant: 0, fadeIn: STILL ? 1 : 0, role: null, target: 0,
       black: true, bias: 0, wash: 0, readT: 0, legible: false, hw: 0.3, hh: 0.2,
@@ -313,22 +330,19 @@
     p.atom = p.next; p.next = null; p.k = 0; p.readT = 0; p.pairs = null;
   }
   function respawn(p) {
-    const e = Math.floor(Math.random() * 4), a = rand(-0.9, 0.9);
-    [p.x, p.y] = e === 0 ? [a, 1.45] : e === 1 ? [1.45, a] : e === 2 ? [a, -1.45] : [-1.45, a];
-    p.depth = rand(0.2, 0.8); p.role = null;
+    p.x = rand(-0.75, 0.75); p.y = rand(-0.65, 0.65);
+    p.depth = rand(1.05, 1.3); p.zv = rand(0.016, 0.03); p.role = null;
     inkWeight(p);                             // each entrance has its own weight of ink
     if (p.next != null) finishMorph(p);
     remember(p, p.atom);
     // enter holding a relative of something already on the page
     const on = perf.filter(q => q !== p && !q.dormant && q.atom >= 0 && Math.abs(q.x) < 1.1 && Math.abs(q.y) < 1.1);
     const host = on.length ? on[Math.floor(Math.random() * on.length)] : null;
-    p.atom = host ? pickAtom(p, 0.12, inUse(), host.next != null ? host.next : host.atom) : pickAtom(p, G.variety, inUse());
+    const hostAtom = host ? (host.next != null ? host.next : host.atom) : -1;
+    const follow = host && Math.random() < 0.4 ? after(hostAtom, inUse()) : -1;      // the poem carries on in another hand
+    p.atom = follow >= 0 ? follow : host ? pickAtom(p, 0.12, inUse(), hostAtom) : pickAtom(p, G.variety, inUse());
     p.fadeIn = 0; p.readT = 0; p.offx = 0; p.offy = 0; p.h = 0; p.seen = false; p.sx = null; p.fvx = p.fvy = 0;
-    setStyle(p, Math.random() < 0.6 ? 'traverse' : 'fluid');
-    if (p.kind === 'traverse') {
-      const tx = rand(-0.5, 0.5), ty = rand(-0.4, 0.4), dx = tx - p.x, dy = ty - p.y, n = Math.hypot(dx, dy), v = rand(0.12, 0.26);
-      p.st.vx = dx / n * v; p.st.vy = dy / n * v;
-    }
+    setStyle(p);
   }
   function syncCount() {
     const narrow = Math.min(canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight) < 560;
@@ -339,16 +353,16 @@
 
   // ── Depth director and encounters (Ensemble.swift) ─────────────────
   let nextExcursion = 8;
-  function surge(p) { p.role = 'surge'; p.target = -(0.45 + 0.2 * S.surge) * S.surge - 0.02; }
+  function surge(p) { p.role = 'surge'; p.target = -0.3; }
   function director(dt) {
     nextExcursion -= dt; if (nextExcursion > 0) return;
     nextExcursion = S.excursion * rand(0.75, 1.25);
-    const mid = perf.filter(p => !p.role && p.depth > 0.2 && p.depth < 0.85 && p.next == null && !p.dormant && isRead(p));
+    const mid = perf.filter(p => !p.role && p.depth > 0.1 && p.depth < 0.7 && p.next == null && !p.dormant && isRead(p));
     if (!mid.length) { nextExcursion = 2.5; return; }
     const a = mid[Math.floor(Math.random() * mid.length)]; surge(a);
     if (Math.random() < 0.5) {
       const rest = perf.filter(p => p !== a && !p.role && !p.dormant && isRead(p));
-      if (rest.length) { const b = rest[Math.floor(Math.random() * rest.length)]; b.role = 'recede'; b.target = rand(1.05, 1.25); }
+      if (rest.length) { const b = rest[Math.floor(Math.random() * rest.length)]; b.role = 'recede'; b.target = rand(0.85, 1.05); }
     }
   }
   function encounters() {
@@ -356,10 +370,10 @@
       const a = perf[i], b = perf[j];
       if (a.dormant || b.dormant || a.encCool > 0 || b.encCool > 0 || a.next != null || b.next != null || a.role === 'surge' || b.role === 'surge' || !isRead(a) || !isRead(b)) continue;
       if (Math.abs(a.x) > 1 || Math.abs(a.y) > 1 || Math.abs(b.x) > 1 || Math.abs(b.y) > 1) continue;
-      if (Math.hypot(a.x - b.x, a.y - b.y) < S.encDist) {
+      if (Math.hypot(a.x - b.x, a.y - b.y) < S.encDist && Math.abs(a.depth - b.depth) < 0.3) {
         // the deeper one takes the other's form; the other leaves
         const absorber = a.depth >= b.depth ? a : b, leaving = absorber === a ? b : a;
-        startMorph(absorber, leaving.atom, 1.6);
+        startMorph(absorber, leaving.atom, 2.0);
         leaving.dormant = 0.9;
         const deep = a.depth > 0.75 && b.depth > 0.75;
         absorber.encCool = S.encCool * (deep ? 1.8 : 1); leaving.encCool = S.encCool;
@@ -444,14 +458,15 @@
       // a mark that has not been read yet slows and holds, eased
       const hT = waiting ? (p.legible ? 1 : 0.55) : 0;
       p.h += (hT - p.h) * Math.min(1, raw * 1.2);
-      const damp = (p.role === 'surge' ? 0.35 : 1) * (1 - 0.62 * p.h);
+      const damp = (p.role === 'surge' ? 0.35 : 1) * (1 - 0.4 * p.h);
       // liveliness: an uneven pace, with a short dart now and then
       p.clock += raw;
-      p.nextBurst -= raw; if (p.nextBurst <= 0) { p.burst = 1; p.nextBurst = rand(5, 15); }
-      p.burst = Math.max(0, p.burst - raw / 1.3);
-      const live = p.pace * (1 + 0.45 * Math.sin(p.clock * p.pw)) * (1 + 2.4 * ss(p.burst));
+      const live = p.pace * (1 + 0.22 * Math.sin(p.clock * p.pw));
       const ox = p.x;
       STYLES[p.kind].update(p, dt * damp * live);
+      // the current: every mark comes forward out of the page, slowing while it is being read,
+      // quickening once it has been, until it passes through the screen
+      if (!p.role) p.depth -= p.zv * raw * (waiting ? 1 - 0.85 * p.h : p.depth < 0.36 ? 7 : p.depth < 0.7 ? 2.2 : 1);
 
       // neighbours keep a little distance, unless their marks are alike:
       // kin drift toward each other, so meetings happen between related marks
@@ -459,8 +474,9 @@
       for (const q of perf) {
         if (q === p || q.dormant) continue;
         const kin = (p.kin && p.kin.get(q)) || 0;
-        const dx = p.x - q.x, dy = (p.y - q.y) * 1.6, d = Math.hypot(dx, dy) + 1e-3, R = p.black && q.black ? 0.8 : 0.55;   // solid blacks give each other more room
-        if (d < R) { const f = S.spacing * (q === p.mate || q.mate === p ? 1 - kin : 1) * (p.black && q.black ? 1.8 : 1) * ss((R - d) / R) * 0.8; fx += dx / d * f; fy += dy / d * f / 1.6; }
+        const dx = p.x - q.x, dy = (p.y - q.y) * 1.6, d = Math.hypot(dx, dy) + 1e-3, R = (p.black && q.black ? 0.62 : 0.4) + (p.hw + q.hw) * 0.55;   // solid blacks give each other more room
+        const near = Math.max(0, 1 - Math.abs(p.depth - q.depth) / 0.3);
+        if (d < R && near > 0) { const f = near * S.spacing * (q === p.mate || q.mate === p ? 1 - kin : 1) * (p.black && q.black ? 1.8 : 1) * ss((R - d) / R) * 0.8; fx += dx / d * f; fy += dy / d * f / 1.6; }
         if (q === p.mate && Math.abs(q.x) < 1.1 && Math.abs(q.y) < 1.1) {
           const ax = q.x - p.x, ay = q.y - p.y, ad = Math.hypot(ax, ay) + 1e-3, f = S.attract * kin * Math.min(ad, 0.7);
           fx += ax / ad * f; fy += ay / ad * f;
@@ -473,12 +489,12 @@
       p.x += p.fvx * dt; p.y += p.fvy * dt;
       if (!isFinite(p.x) || !isFinite(p.y)) { respawn(p); continue; }
       // a mark leans a little into its travel and settles to its own tilt
-      p.lean += (clamp((p.x - ox) / Math.max(raw, 1e-3) * 0.9, -0.13, 0.13) - p.lean) * Math.min(1, raw * 2);
+      p.lean += (clamp((p.x - ox) / Math.max(raw, 1e-3) * 0.6, -0.06, 0.06) - p.lean) * Math.min(1, raw * 0.9);
       p.tilt += (p.tiltT - p.tilt) * Math.min(1, raw * 0.5);
 
       if (p.role) {
         p.depth += (p.target - p.depth) * dt * (p.role === 'surge' ? 0.55 : 0.25);
-        if (p.role === 'surge' && p.depth <= p.target + 0.03) { p.dormant = 0.6; p.role = null; }
+        if (p.role === 'surge' && p.depth <= p.target + 0.03) p.role = null;
         if (p.role === 'recede' && Math.abs(p.depth - p.target) < 0.03) p.role = null;
       }
       // keep an unread mark whole on the page: a smoothed offset and an eased depth
@@ -496,18 +512,21 @@
       if (waiting && !p.role) {
         const w0 = baseScale(p.atom, G.size) * 160 * Math.min(1, atoms[p.atom].a), h0 = w0 / atoms[p.atom].a, k = Math.max(0.01, S.range * 1.5);
         const zFit = 0.5 - Math.log2(Math.min(W * 0.875 / w0, H * 0.87 / h0)) / k;
-        const zBig = 0.5 - Math.log2(Math.max(1e-3, 30 * PX / h0)) / k;
-        const lo = Math.max(0.22, zFit), hi = Math.max(lo + 0.05, Math.min(0.62, zBig));
+        const zBig = 0.5 - Math.log2(Math.max(1e-3, 24 * PX * (atoms[p.atom].cls === 'p' ? atoms[p.atom].rows : 1) / h0)) / k;
+        const lo = Math.max(0.38, zFit), hi = Math.max(lo + 0.05, Math.min(0.66, zBig));
         p.depth += (clamp(p.depth, lo, hi) - p.depth) * Math.min(1, raw * 0.45 * p.h);
       }
-      if (Math.abs(p.x + p.offx) > 1.6 || Math.abs(p.y + p.offy) > 1.6) { respawn(p); continue; }
+      if (Math.abs(p.x + p.offx) > 1.6 || Math.abs(p.y + p.offy) > 1.6 || p.depth < -0.27) { respawn(p); continue; }
       p.fadeIn = Math.min(1, p.fadeIn + dt * 0.8);
 
       // morph scheduling: its own clock, in real seconds
       p.nextMorph -= raw;
       if (p.nextMorph <= 0) {
         if (p.next == null && (!isRead(p) || p.role)) p.nextMorph = 0.25;
-        else { p.nextMorph = G.tempo * rand(0.7, 1.3); if (p.next == null) startMorph(p, pickAtom(p, G.variety, inUse()), 1.25); }
+        else { p.nextMorph = G.tempo * rand(0.45, 1.0); if (p.next == null) {
+          const used = inUse(), on = Math.random() < 0.65 ? after(p.atom, used) : -1;      // a passage turns into the one after it
+          startMorph(p, on >= 0 ? on : pickAtom(p, G.variety, used), rand(1.7, 2.4));
+        } }
       }
       if (p.next != null) { p.k += raw / (p.mdur * 2.6); if (p.k >= 1) finishMorph(p); }
     }
@@ -516,6 +535,7 @@
 
   // ── Draw ───────────────────────────────────────────────────────────
   let lastRaw = 1 / 60;
+  const KJ = new Float32Array(NPT);
   function place(s, X, Y, rot) { const c = Math.cos(rot) * s, n = Math.sin(rot) * s; ctx.setTransform(c, n, -n, c, X, Y); }
   function fillAtom(i, X, Y, s, alpha, rot) {
     if (alpha <= 0.004) return;
@@ -533,11 +553,13 @@
       if (p.atom < 0 || p.atom >= loaded) continue;
       const z = p.depth, ds = depthScale(z);
       const back = clamp((z + 0.2) / 1.3, 0, 1);                      // 0 front … 1 far back
-      const tone = p.black ? 0 : clamp(p.bias + back * S.tone * 0.4, 0, 0.9);   // back figures lighten toward the paper
-      const ink = (p.black ? 1 : G.ink * (1 - p.wash) * (1 - clamp(z, 0, 1.3) * S.inkFade))
-        * (z >= -0.35 ? 1 : z <= -0.6 ? 0 : (z + 0.6) / 0.25)
+      const far = ss((z - 0.68) / 0.45) * 0.8;                         // everything is pale far back and inks up as it arrives
+      const tone = Math.max(far, p.black ? 0 : clamp(p.bias + back * S.tone * 0.4, 0, 0.9));   // back figures lighten toward the paper
+      const ink = (p.black ? 1 - 0.35 * ss((z - 0.6) / 0.5) : G.ink * (1 - p.wash) * (1 - clamp(z, 0, 1.3) * S.inkFade))
+        * (z >= 0.3 ? 1 : z <= -0.25 ? 0 : 1 - ss((0.3 - z) / 0.55))
         * (p.dormant > 0 ? Math.max(0, p.dormant / 0.9) : 1) * ss(p.fadeIn);
-      let X = W / 2 + (p.x + p.offx) * W / 2, Y = H / 2 + (p.y + p.offy) * H / 2;
+      const persp = clamp(1 + (0.5 - z) * 0.45, 0.75, 1.5);              // marks spread from the centre as they come forward
+      let X = W / 2 + (p.x + p.offx) * W / 2 * persp, Y = H / 2 + (p.y + p.offy) * H / 2 * persp;
       {                                                               // smooth the drawn position
         const kf = 1 - Math.exp(-lastRaw / 0.14);
         if (p.sx == null || Math.hypot(X - p.sx, Y - p.sy) > REF * 0.16) { p.sx = X; p.sy = Y; }
@@ -549,7 +571,7 @@
       p.hw = wpx / W; p.hh = hpx / H;
       {
         const m = p.legible ? 24 * PX : 0, f = p.legible ? 0.06 : 0;  // once readable, stay readable unless clearly not
-        p.legible = !p.dormant && ink > 0.2 - f && hpx >= 30 * PX - m / 3
+        p.legible = !p.dormant && ink > 0.2 - f && hpx / (atoms[p.atom].cls === 'p' ? atoms[p.atom].rows : 1) >= 22 * PX - m / 3
           && wpx <= W * 0.975 + m && hpx <= H * 0.98 + m
           && X - wpx / 2 >= -8 - m && X + wpx / 2 <= W + 8 + m && Y - hpx / 2 >= -8 - m && Y + hpx / 2 <= H + 8 + m;
       }
@@ -567,9 +589,14 @@
           ctx.globalAlpha = am;
           place(s, X, Y, rot);
           ctx.beginPath();
+          const um = clamp((p.k - 0.06) / 0.88, 0, 1), sw = p.clock * 0.35;
+          for (let j = 0; j < NPT; j++) KJ[j] = ss(clamp(um * 1.7 - 0.7 * (0.5 + 0.5 * Math.sin(j * 6.2832 / NPT + sw)), 0, 1));
+          let r = 0;
           for (const [pa, pb] of p.pairs) {
-            ctx.moveTo(pa[0] + (pb[0] - pa[0]) * k, pa[1] + (pb[1] - pa[1]) * k);
-            for (let j = 2; j < NPT * 2; j += 2) ctx.lineTo(pa[j] + (pb[j] - pa[j]) * k, pa[j + 1] + (pb[j + 1] - pa[j + 1]) * k);
+            const o = (r++ * 17) % NPT;                                   // each outline starts its sweep somewhere else
+            let kk = KJ[o];
+            ctx.moveTo(pa[0] + (pb[0] - pa[0]) * kk, pa[1] + (pb[1] - pa[1]) * kk);
+            for (let j = 1; j < NPT; j++) { kk = KJ[(j + o) % NPT]; ctx.lineTo(pa[2 * j] + (pb[2 * j] - pa[2 * j]) * kk, pa[2 * j + 1] + (pb[2 * j + 1] - pa[2 * j + 1]) * kk); }
             ctx.closePath();
           }
           ctx.fill('nonzero');
@@ -606,8 +633,8 @@
   }
 
   async function load() {
-    IDX = await (await fetch(DATA + 'index.json')).json();
-    const get = async f => (await fetch(DATA + f)).arrayBuffer();
+    IDX = await (await fetch(DATA + 'index.json' + VER)).json();
+    const get = async f => (await fetch(DATA + f + VER)).arrayBuffer();
     parseChunk(await get(IDX.chunks[0].file));
     start();
     if (STILL) return;

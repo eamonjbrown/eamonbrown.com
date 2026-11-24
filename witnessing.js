@@ -12,7 +12,7 @@
 
    The slider values are the ones saved in the app's trace mode.
    Press and drag pushes into the ground: a crater with a raised ring, and a
-   wake of mounds along the path. */
+   wake of mounds along the path (gentler than on device). */
 (() => {
   'use strict';
 
@@ -93,7 +93,7 @@
       if (d2 < 220.0) {
         float d = sqrt(d2);
         float crater = -5.5 * exp(-d2 / 18.0);
-        float ring   =  2.8 * exp(-((d - 6.0) * (d - 6.0)) / 6.0);
+        float ring   =  1.7 * exp(-((d - 6.0) * (d - 6.0)) / 6.0);
         fh += (crater + ring) * uPress;
       }
     }
@@ -102,11 +102,14 @@
       if (i >= uTrailN) break;
       vec2 dd = vec2(worldX, worldZ) - uTrail[i].xy;
       float d2 = dot(dd, dd);
-      if (d2 < 90.0) fh += 2.2 * exp(-d2 / 14.0) * uTrail[i].z;
+      if (d2 < 90.0) fh += 1.3 * exp(-d2 / 14.0) * uTrail[i].z;
     }
 
     float edge = clamp((worldZ - 40.0) / 22.0, 0.0, 1.0);
     float barH = max(0.4, 0.8 + fh * 3.6 * (1.0 - edge * edge));
+    // Web only: bars close to the camera stay below eye level, so ground
+    // pushed up by a touch cannot wall off the view.
+    barH = min(barH, 6.0 + 8.0 * smoothstep(-28.0, 2.0, worldZ) + 30.0 * smoothstep(2.0, 20.0, worldZ));
     vElev = clamp((fh + 2.5) / 6.0, 0.0, 1.0);
 
     vec3 world = vec3(aPos.x + worldX, (aPos.y + 0.5) * barH, aPos.z + worldZ);
@@ -138,6 +141,7 @@
     vec3 aB = vec3(0.55, 0.50, 0.50), bB = vec3(0.50, 0.45, 0.50), cB = vec3(1.00, 0.70, 0.40), dB = vec3(0.00, 0.15, 0.20);
     float w = clamp(uColorTemp, 0.0, 1.0);
     vec3 rgb = mix(aA, aB, w) + mix(bA, bB, w) * cos(6.28318 * (mix(cA, cB, w) * t + mix(dA, dB, w)));
+    rgb = 0.24 + 0.76 * rgb;   // web only: a floor under the palette, so its dark phase is not near-black
 
     vec3 cam = vec3(0.0, uCamY, ${CAM_Z.toFixed(1)});
     vec3 n = normalize(vNormal);
@@ -484,7 +488,7 @@
   const st = {
     animT: 0, cameraZ: 0, cameraX: 0,
     coh: 0, mot: 0, dir: 0, gen: 0, key: 0, scan: 0, fold: 0, ramp: 0,
-    colorDrift: 0.5, palTemp: 0.5, palRot: 0,
+    colorDrift: 0.5, palTemp: V.palette, palRot: -0.35,   // open on a light phase of the palette
     freePhase: 0, breathT: 0,
   };
   if (STILL) {
@@ -492,7 +496,7 @@
     Object.assign(st, {
       animT: 40, cameraZ: 32, coh: V.abstract, mot: V.motion, dir: V.direction, gen: V.genlock,
       key: V.keying, scan: V.scan, fold: V.fold, ramp: V.ramp,
-      colorDrift: V.colorDrift, palTemp: V.palette, palRot: 0.05, breathT: 2.7,
+      colorDrift: V.colorDrift, palTemp: V.palette, palRot: -0.3, breathT: 2.7,
     });
   }
   const trailU = new Float32Array(18 * 4);
